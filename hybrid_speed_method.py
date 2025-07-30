@@ -76,14 +76,16 @@ def hybrid_speed_method():
     print("⚡ Ultra-fast processing (1.7s/item) + Smart download monitoring")
 
     po_number = "1288060"
-    download_folder = os.path.join(os.getcwd(), str(po_number))
-    
-    # Setup folder
+    # Setup folder with timestamp format: YYYY_MM_DD_HH_MM_{PO#}
+    timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
+    folder_name = f"{timestamp}_{po_number}"
+    download_folder = os.path.join(os.getcwd(), folder_name)
+
     if not os.path.exists(download_folder):
         os.makedirs(download_folder, exist_ok=True)
-        print(f"📁 Created folder: {download_folder}")
+        print(f"📁 Created folder: {folder_name}")
     else:
-        print(f"📁 Using existing folder: {download_folder}")
+        print(f"📁 Using existing folder: {folder_name}")
     
     # Count initial files
     initial_files = glob.glob(os.path.join(download_folder, "*.pdf"))
