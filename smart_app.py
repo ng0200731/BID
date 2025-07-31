@@ -14,7 +14,7 @@ Version History:
 """
 
 # Version information
-VERSION = "3.0.1"
+VERSION = "3.1.0"
 VERSION_DATE = "2025-07-31"
 
 from flask import Flask, render_template_string, request, jsonify
@@ -617,38 +617,44 @@ def download_super_fast(items, download_folder):
     global download_status
     success_count = 0
 
+    download_status['log'].append("🚀 Super Fast method - Direct PDF downloads")
+
     for i, item in enumerate(items):
         if not download_status['active']:
             break
 
         progress = int((i + 1) / len(items) * 100)
         download_status['progress'] = progress
-        download_status['log'].append(f"🚀 Super Fast: Processing {i+1}/{len(items)}: {item.get('name', 'Unknown')}")
+
+        item_name = item.get('name', 'Unknown')
+        download_status['log'].append(f"🚀 Super Fast: Processing {i+1}/{len(items)}: {item_name}")
 
         try:
-            item_name = item.get('name', '')
             suffix_id = item.get('suffix_id', '')
 
             if suffix_id:
                 pdf_url = f"https://app4.brandid.com/Artwork/{item_name}_{suffix_id}.pdf"
-                response = requests.get(pdf_url, timeout=10)
+                download_status['log'].append(f"🔗 Trying: {pdf_url}")
 
-                if response.status_code == 200:
+                response = requests.get(pdf_url, timeout=15)
+
+                if response.status_code == 200 and len(response.content) > 1000:  # Valid PDF should be > 1KB
                     pdf_filename = f"{item_name}_{suffix_id}.pdf"
                     pdf_path = os.path.join(download_folder, pdf_filename)
 
                     with open(pdf_path, 'wb') as f:
                         f.write(response.content)
 
-                    download_status['log'].append(f"✅ Downloaded: {pdf_filename}")
+                    file_size = len(response.content) / 1024  # KB
+                    download_status['log'].append(f"✅ Downloaded: {pdf_filename} ({file_size:.1f} KB)")
                     success_count += 1
                 else:
-                    download_status['log'].append(f"❌ PDF not found: {pdf_url}")
+                    download_status['log'].append(f"❌ PDF not found or invalid: {response.status_code}")
             else:
-                download_status['log'].append(f"❌ No suffix_id for: {item_name}")
+                download_status['log'].append(f"❌ No suffix_id found for: {item_name}")
 
         except Exception as e:
-            download_status['log'].append(f"❌ Error: {str(e)}")
+            download_status['log'].append(f"❌ Error downloading {item_name}: {str(e)}")
 
         time.sleep(0.5)  # Very fast
 
@@ -697,19 +703,175 @@ def download_original_slow(items, download_folder):
     global download_status
     success_count = 0
 
-    # TODO: Implement original slow method
-    download_status['log'].append("🐌 Original slow method - Coming soon!")
+    download_status['log'].append("🐌 Original Slow method - Full browser automation")
+    download_status['log'].append("🔐 Setting up browser with download preferences...")
 
-    for i, item in enumerate(items):
-        if not download_status['active']:
-            break
+    # Setup Chrome with download preferences
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
 
-        progress = int((i + 1) / len(items) * 100)
-        download_status['progress'] = progress
-        download_status['log'].append(f"🐌 Original Slow: Processing {i+1}/{len(items)}: {item.get('name', 'Unknown')}")
-        time.sleep(5)
+    # Set download preferences
+    prefs = {
+        "download.default_directory": download_folder,
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True,
+        "safebrowsing.disable_download_protection": True,
+        "profile.default_content_setting_values.notifications": 2
+    }
+    chrome_options.add_experimental_option("prefs", prefs)
+
+    try:
+        # Initialize driver
+        try:
+            driver_path = ChromeDriverManager().install()
+            service = Service(driver_path)
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        except:
+            driver = webdriver.Chrome(options=chrome_options)
+
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        wait = WebDriverWait(driver, 15)
+
+        download_status['log'].append("🌐 Navigating to E-BrandID login...")
+
+        # Login to E-BrandID
+        driver.get("https://app.e-brandid.com/login/login.aspx")
+
+        username_field = wait.until(EC.presence_of_element_located((By.ID, "txtUserName")))
+        password_field = driver.find_element(By.ID, "txtPassword")
+
+        username_field.clear()
+        username_field.send_keys("sales10@fuchanghk.com")
+        password_field.clear()
+        password_field.send_keys("fc31051856")
+
+        login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
+        login_button.click()
+
+        # Wait for login to complete
+        wait.until(lambda d: "login" not in d.current_url.lower())
+        download_status['log'].append("✅ Successfully logged in to E-BrandID")
+
+        # Process each item
+        for i, item in enumerate(items):
+            if not download_status['active']:
+                break
+
+            progress = int((i + 1) / len(items) * 100)
+            download_status['progress'] = progress
+
+            item_name = item.get('name', 'Unknown')
+            download_status['log'].append(f"🐌 Processing {i+1}/{len(items)}: {item_name}")
+
+            try:
+                success = download_item_with_browser(driver, item, download_folder, wait)
+                if success:
+                    success_count += 1
+                    download_status['log'].append(f"✅ Downloaded artwork for: {item_name}")
+                else:
+                    download_status['log'].append(f"❌ Failed to download: {item_name}")
+
+            except Exception as e:
+                download_status['log'].append(f"❌ Error processing {item_name}: {str(e)}")
+
+            time.sleep(2)  # Pause between items
+
+        download_status['log'].append("🔚 Closing browser...")
+
+    except Exception as e:
+        download_status['log'].append(f"❌ Browser error: {str(e)}")
+    finally:
+        try:
+            driver.quit()
+        except:
+            pass
 
     return success_count
+
+def download_item_with_browser(driver, item, download_folder, wait):
+    """Download individual item using browser automation"""
+    try:
+        item_name = item.get('name', '')
+
+        # Method 1: Try direct artwork search
+        download_status['log'].append(f"🔍 Searching for artwork: {item_name}")
+
+        # Go to artwork search page
+        driver.get("https://app.e-brandid.com/Bidnet/bidnet3/artworkSearch.aspx")
+        time.sleep(2)
+
+        # Search for the item
+        try:
+            search_box = wait.until(EC.presence_of_element_located((By.ID, "txtSearch")))
+            search_box.clear()
+            search_box.send_keys(item_name)
+
+            search_button = driver.find_element(By.ID, "btnSearch")
+            search_button.click()
+            time.sleep(3)
+
+            # Look for download links
+            download_links = driver.find_elements(By.XPATH, "//a[contains(@href, '.pdf') or contains(text(), 'Download') or contains(@onclick, 'download')]")
+
+            if download_links:
+                download_status['log'].append(f"📄 Found download link for: {item_name}")
+                download_links[0].click()
+                time.sleep(3)
+                return True
+
+        except Exception as e:
+            download_status['log'].append(f"⚠️ Artwork search failed: {str(e)}")
+
+        # Method 2: Try item detail page if we have suffix_id
+        suffix_id = item.get('suffix_id', '')
+        if suffix_id:
+            try:
+                # Try to construct item detail URL
+                detail_url = f"https://app.e-brandid.com/Bidnet/BidCustomer/ItemDetail.aspx?item_suffix_id={suffix_id}"
+                download_status['log'].append(f"🔗 Trying item detail page: {suffix_id}")
+
+                driver.get(detail_url)
+                time.sleep(3)
+
+                # Look for artwork download buttons
+                artwork_buttons = driver.find_elements(By.XPATH, "//a[contains(text(), 'Artwork') or contains(text(), 'Download') or contains(@href, '.pdf')]")
+
+                if artwork_buttons:
+                    download_status['log'].append(f"📄 Found artwork button for: {item_name}")
+                    artwork_buttons[0].click()
+                    time.sleep(3)
+                    return True
+
+            except Exception as e:
+                download_status['log'].append(f"⚠️ Item detail page failed: {str(e)}")
+
+        # Method 3: Try direct PDF URL (fallback to super fast method)
+        if suffix_id:
+            try:
+                pdf_url = f"https://app4.brandid.com/Artwork/{item_name}_{suffix_id}.pdf"
+                download_status['log'].append(f"🚀 Trying direct PDF: {pdf_url}")
+
+                driver.get(pdf_url)
+                time.sleep(2)
+
+                # Check if PDF loaded (not 404 page)
+                if "404" not in driver.page_source and "Not Found" not in driver.page_source:
+                    download_status['log'].append(f"📄 Direct PDF found for: {item_name}")
+                    return True
+
+            except Exception as e:
+                download_status['log'].append(f"⚠️ Direct PDF failed: {str(e)}")
+
+        return False
+
+    except Exception as e:
+        download_status['log'].append(f"❌ Item download error: {str(e)}")
+        return False
 
 @app.route('/api/status')
 def get_status():
