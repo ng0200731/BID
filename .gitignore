@@ -1,3 +1,74 @@
-﻿*.pdf
+﻿# PDF Files (Downloaded content)
+*.pdf
+
+# Download Folders (All PO folders)
 1280282/
+1284678/
 1288060*/
+2025_*/
+2024_*/
+2026_*/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+.env
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Build directories
+build/
+dist/
+*.egg-info/
+
+# Chrome/Browser files
+*.crdownload
+*.part
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Configuration files with sensitive data
+config.json
+credentials.json
+.env.local
