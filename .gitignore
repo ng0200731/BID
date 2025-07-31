@@ -1,13 +1,19 @@
 ﻿# PDF Files (Downloaded content)
 *.pdf
 
-# Download Folders (All PO folders)
+# Download Folders (New structure)
+download_artwork/
+
+# Legacy Date folders (old format)
+2024_*/
+2025_*/
+2026_*/
+2027_*/
+
+# Legacy PO folders (old format)
 1280282/
 1284678/
 1288060*/
-2025_*/
-2024_*/
-2026_*/
 
 # Python Cache
 __pycache__/

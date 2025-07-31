@@ -382,14 +382,23 @@ class UnifiedDownloader:
             method = self.show_main_menu()
             po_number = self.get_po_and_options()
 
-            # Setup folder with timestamp format: YYYY_MM_DD_HH_MM_{PO#}
-            timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
-            folder_name = f"{timestamp}_{po_number}"
-            download_folder = os.path.join(os.getcwd(), folder_name)
+            # Setup folder structure: Date folder / PO#_HH_MM_SS
+            now = datetime.now()
+            date_folder = now.strftime("%Y_%m_%d")
+            time_part = now.strftime("%H_%M_%S")
+            po_folder = f"{po_number}_{time_part}"
 
+            # Create date folder first
+            date_path = os.path.join(os.getcwd(), date_folder)
+            if not os.path.exists(date_path):
+                os.makedirs(date_path, exist_ok=True)
+                print(f"📅 Created date folder: {date_folder}")
+
+            # Create PO folder inside date folder
+            download_folder = os.path.join(date_path, po_folder)
             if not os.path.exists(download_folder):
                 os.makedirs(download_folder, exist_ok=True)
-                print(f"📁 Created folder: {folder_name}")
+                print(f"📁 Created PO folder: {date_folder}/{po_folder}")
             
             initial_count = len(glob.glob(os.path.join(download_folder, "*.pdf")))
             

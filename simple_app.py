@@ -463,8 +463,8 @@ C:\\crawl_web\\venv\\Scripts\\python.exe unified_downloader.py
 
 5. Confirm and start download!
 
-📁 Files will be saved to: YYYY_MM_DD_HH_MM_${poNumber}
-   (e.g., 2025_07_31_14_30_${poNumber})
+📁 Files will be saved to: YYYY_MM_DD/${poNumber}_HH_MM_SS
+   (e.g., 2025_07_31/${poNumber}_14_30_25)
 
 The downloader will open automatically with your browser and start processing.
             `;
