@@ -602,11 +602,12 @@ def real_download(po_number, method, items):
         elif method == 'original_slow':
             success_count = download_original_slow(items, download_folder)
         elif method == 'guaranteed_complete':
-            success_count = download_guaranteed_complete(items, download_folder)
+            success_count = download_guaranteed_complete(po_number, items, download_folder)
         else:
             success_count = download_standard(items, download_folder)  # Default
 
         download_status['active'] = False
+        download_status['download_folder'] = download_folder  # Store folder path for "Open Folder" link
         download_status['log'].append("✅ Download completed!")
         download_status['log'].append(f"📁 {success_count}/{len(items)} files downloaded successfully")
 
@@ -713,7 +714,7 @@ def download_original_slow(items, download_folder):
 
     return success_count
 
-def download_guaranteed_complete(items, download_folder):
+def download_guaranteed_complete(po_number, items, download_folder):
     """Guaranteed Complete Download: 100% success rate with actual PDF URL extraction"""
     global download_status
     import requests
@@ -763,11 +764,7 @@ def download_guaranteed_complete(items, download_folder):
         WebDriverWait(driver, 10).until(lambda d: "login" not in d.current_url.lower())
         download_status['log'].append("✅ Login successful!")
 
-        # Now navigate to the PO page (after login)
-        po_number = items[0].get('po_number', '') if items else ''
-        if not po_number:
-            po_number = "1284789"  # Fallback for testing
-
+        # Now navigate to the PO page (after login) - use the correct PO number
         po_url = f"https://app.e-brandid.com/Bidnet/bidnet3/factoryPODetail.aspx?po_id={po_number}"
         driver.get(po_url)
         download_status['log'].append(f"📄 Loaded PO page: {po_number} (after login)")
@@ -938,6 +935,25 @@ def get_version():
             '3-tab interface structure'
         ]
     })
+
+@app.route('/api/open_folder')
+def open_folder():
+    """Open the download folder in Windows Explorer"""
+    try:
+        # Get the most recent download folder from download_status
+        if 'download_folder' in download_status:
+            folder_path = download_status['download_folder']
+            if os.path.exists(folder_path):
+                # Open folder in Windows Explorer
+                import subprocess
+                subprocess.Popen(f'explorer "{folder_path}"')
+                return jsonify({"success": True, "message": f"Opened folder: {folder_path}"})
+            else:
+                return jsonify({"success": False, "message": "Download folder not found"})
+        else:
+            return jsonify({"success": False, "message": "No download folder available"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error opening folder: {str(e)}"})
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -1804,8 +1820,11 @@ HTML_TEMPLATE = """
                 const response = await fetch('/api/status');
                 const status = await response.json();
                 
+                // Show "Open Folder" link if download is complete (100% and not active)
+                const showOpenFolder = !status.active && status.progress === 100 && status.download_folder;
+
                 document.getElementById('progress_info').innerHTML = `
-                    <p>Progress: ${status.progress}%</p>
+                    <p>Progress: ${status.progress}% ${showOpenFolder ? '<a href="#" onclick="openDownloadFolder()" style="margin-left: 15px; color: #007bff; text-decoration: none; font-weight: bold;">📁 Open Folder</a>' : ''}</p>
                     <div style="background: #e0e0e0; height: 20px; margin: 10px 0;">
                         <div style="background: #333; height: 100%; width: ${status.progress}%; transition: width 0.3s;"></div>
                     </div>
@@ -1813,7 +1832,7 @@ HTML_TEMPLATE = """
                         ${status.log.map(entry => `<div>${entry}</div>`).join('')}
                     </div>
                 `;
-                
+
                 if (status.active) {
                     setTimeout(pollProgress, 1000);
                 } else {
@@ -1823,7 +1842,21 @@ HTML_TEMPLATE = """
                 console.error('Error polling progress:', error);
             }
         }
-        
+
+        async function openDownloadFolder() {
+            try {
+                const response = await fetch('/api/open_folder');
+                const result = await response.json();
+                if (result.success) {
+                    showError('📁 Folder opened successfully!', 'success');
+                } else {
+                    showError('❌ ' + result.message, 'error');
+                }
+            } catch (error) {
+                showError('❌ Error opening folder: ' + error.message, 'error');
+            }
+        }
+
         function showError(message, type = 'error') {
             const container = document.getElementById('error_container');
             const className = type === 'success' ? 'success' : 'error';
