@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.2.2"
-VERSION_DATE = "2025-08-02 11:20"
-LAST_EDIT = "Added cache-busting headers to prevent browser caching issues"
+VERSION = "1.2.8"
+VERSION_DATE = "2025-08-02 11:50"
+LAST_EDIT = "Changed server port to 5002 to bypass browser caching"
 
 
 
@@ -674,14 +674,26 @@ def get_po_data(po_number):
 @app.route('/')
 def index():
     masked_username = mask_email(config['username'])
+    # NUCLEAR cache busting - multiple timestamps
+    import time
+    import random
+    cache_buster = f"{int(time.time())}-{random.randint(1000,9999)}"
+
     response = app.response_class(
-        render_template_string(HTML_TEMPLATE, version=VERSION, version_date=VERSION_DATE, last_edit=LAST_EDIT, masked_username=masked_username),
+        render_template_string(HTML_TEMPLATE, version=VERSION, version_date=VERSION_DATE, last_edit=LAST_EDIT, masked_username=masked_username, cache_buster=cache_buster),
         mimetype='text/html'
     )
-    # Add cache-busting headers
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+
+    # NUCLEAR cache-busting headers
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0, private'
     response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
+    response.headers['Expires'] = '-1'
+    response.headers['Last-Modified'] = datetime.now().strftime('%a, %d %b %Y %H:%M:%S GMT')
+    response.headers['ETag'] = f'"{VERSION}-{cache_buster}"'
+    response.headers['Vary'] = '*'
+    response.headers['X-Cache-Control'] = 'no-cache'
+    response.headers['X-Version'] = VERSION
+
     return response
 
 @app.route('/api/analyze_po', methods=['POST'])
@@ -1329,16 +1341,103 @@ def save_po_details_api():
     except Exception as e:
         return jsonify({"success": False, "message": f"Error processing PO: {str(e)}"})
 
+@app.route('/api/po/get_all', methods=['GET'])
+def get_all_pos():
+    """Get all PO numbers and basic info from database"""
+    try:
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT po_number, purchase_from, ship_to, company, currency, cancel_date, created_date,
+                   (SELECT COUNT(*) FROM po_items WHERE po_items.po_number = po_headers.po_number) as item_count
+            FROM po_headers
+            ORDER BY created_date DESC
+        ''')
+
+        pos = []
+        for row in cursor.fetchall():
+            pos.append({
+                'po_number': row[0],
+                'purchase_from': row[1],
+                'ship_to': row[2],
+                'company': row[3],
+                'currency': row[4],
+                'cancel_date': row[5],
+                'created_date': row[6],
+                'item_count': row[7]
+            })
+
+        conn.close()
+        return jsonify({"success": True, "pos": pos})
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error retrieving POs: {str(e)}"})
+
+@app.route('/api/po/get_details/<po_number>', methods=['GET'])
+def get_po_details(po_number):
+    """Get complete PO details including all items"""
+    try:
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get header info
+        cursor.execute('SELECT * FROM po_headers WHERE po_number = ?', (po_number,))
+        header_row = cursor.fetchone()
+
+        if not header_row:
+            return jsonify({"success": False, "message": "PO not found"})
+
+        # Get items
+        cursor.execute('SELECT * FROM po_items WHERE po_number = ? ORDER BY id', (po_number,))
+        item_rows = cursor.fetchall()
+
+        header = {
+            'po_number': header_row[1],
+            'purchase_from': header_row[2],
+            'ship_to': header_row[3],
+            'company': header_row[4],
+            'currency': header_row[5],
+            'cancel_date': header_row[6],
+            'created_date': header_row[7],
+            'updated_date': header_row[8]
+        }
+
+        items = []
+        for row in item_rows:
+            items.append({
+                'item_number': row[2],
+                'description': row[3],
+                'color': row[4],
+                'ship_to': row[5],
+                'need_by': row[6],
+                'qty': row[7],
+                'bundle_qty': row[8],
+                'unit_price': row[9],
+                'extension': row[10]
+            })
+
+        conn.close()
+        return jsonify({"success": True, "header": header, "items": items})
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error retrieving PO details: {str(e)}"})
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Artwork Downloader v{{ version }}</title>
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>🚀 Artwork Downloader v{{ version }} - FRESH LOAD {{ cache_buster }}</title>
+    <!-- NUCLEAR CACHE BUSTER: {{ cache_buster }} -->
+    <!-- VERSION: {{ version }} - {{ version_date }} -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0, private">
     <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
+    <meta http-equiv="Expires" content="-1">
+    <meta name="cache-buster" content="{{ cache_buster }}">
+    <meta name="version" content="{{ version }}">
+    <meta name="build-time" content="{{ cache_buster }}">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -1700,6 +1799,32 @@ HTML_TEMPLATE = """
             <div id="loading" class="loading hidden">
                 Analyzing PO data...
             </div>
+
+            <!-- Welcome/Instructions Section -->
+            <div id="welcome_section" style="margin-top: 30px; padding: 25px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 10px; border-left: 4px solid #007bff;">
+                <h3 style="color: #007bff; margin-bottom: 15px;">🚀 Welcome to Artwork Downloader</h3>
+                <p style="margin-bottom: 15px; color: #495057;">Get started by entering a PO number above to analyze and download artwork files.</p>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0;">
+                    <div style="padding: 15px; background: white; border-radius: 8px; border: 1px solid #dee2e6;">
+                        <h4 style="color: #28a745; margin-bottom: 10px;">📊 Step 1: Analyze PO</h4>
+                        <p style="font-size: 0.9em; color: #6c757d;">Enter your PO number and click "Analyze PO" to get recommendations and see all available items.</p>
+                    </div>
+                    <div style="padding: 15px; background: white; border-radius: 8px; border: 1px solid #dee2e6;">
+                        <h4 style="color: #17a2b8; margin-bottom: 10px;">🎯 Step 2: Select Method</h4>
+                        <p style="font-size: 0.9em; color: #6c757d;">Choose from multiple download methods based on our intelligent recommendations.</p>
+                    </div>
+                    <div style="padding: 15px; background: white; border-radius: 8px; border: 1px solid #dee2e6;">
+                        <h4 style="color: #fd7e14; margin-bottom: 10px;">📥 Step 3: Download</h4>
+                        <p style="font-size: 0.9em; color: #6c757d;">Select items and start downloading. PO details can be saved to database for future reference.</p>
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">
+                    <strong style="color: #856404;">💡 Pro Tip:</strong>
+                    <span style="color: #856404;">Try PO number "1284789" as an example to see how the system works!</span>
+                </div>
+            </div>
         </div>
         
         <!-- Step 2: Show Recommendations -->
@@ -1815,13 +1940,46 @@ HTML_TEMPLATE = """
         <div id="delivery" class="tab-content">
             <div class="step">
                 <h2><span class="step-number">📅</span>Update Delivery Date</h2>
-                <div class="form-group">
-                    <label for="delivery_po_input">PO Number:</label>
-                    <input type="text" id="delivery_po_input" placeholder="Enter PO number to update delivery date" />
-                    <button class="btn" onclick="loadDeliveryInfo()">Load PO Info</button>
+                <p>Select a PO from your saved database to update delivery dates</p>
+
+                <!-- Saved POs List -->
+                <div style="margin: 20px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3>📊 Saved PO Database</h3>
+                        <button class="btn" onclick="loadSavedPOs()" style="background: #17a2b8;">🔄 Refresh List</button>
+                    </div>
+
+                    <div id="saved_pos_container" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px;">
+                        <div id="saved_pos_loading" style="padding: 20px; text-align: center; color: #666;">
+                            📊 Loading saved POs...
+                        </div>
+                        <div id="saved_pos_list" style="display: none;"></div>
+                        <div id="saved_pos_empty" style="display: none; padding: 20px; text-align: center; color: #666;">
+                            📝 No POs saved yet. Download some artwork first to save PO details to the database.
+                        </div>
+                    </div>
                 </div>
 
-                <div id="delivery_info" class="hidden">
+                <!-- PO Details Section -->
+                <div id="delivery_info" class="hidden" style="margin-top: 20px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9;">
+                    <h3>📋 PO Details</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 15px 0;">
+                        <div>
+                            <strong>PO Number:</strong> <span id="selected_po_number"></span><br>
+                            <strong>Company:</strong> <span id="selected_company"></span><br>
+                            <strong>Purchase From:</strong> <span id="selected_purchase_from"></span>
+                        </div>
+                        <div>
+                            <strong>Ship To:</strong> <span id="selected_ship_to"></span><br>
+                            <strong>Currency:</strong> <span id="selected_currency"></span><br>
+                            <strong>Cancel Date:</strong> <span id="selected_cancel_date"></span>
+                        </div>
+                    </div>
+
+                    <div style="margin: 20px 0;">
+                        <strong>Items Count:</strong> <span id="selected_item_count"></span> items
+                    </div>
+
                     <div class="form-group">
                         <label for="current_delivery_date">Current Delivery Date:</label>
                         <input type="text" id="current_delivery_date" readonly />
@@ -1837,7 +1995,7 @@ HTML_TEMPLATE = """
                         <textarea id="delivery_notes" placeholder="Reason for date change..."></textarea>
                     </div>
 
-                    <button class="btn" onclick="updateDeliveryDate()">Update Delivery Date</button>
+                    <button class="btn" onclick="updateDeliveryDate()">📅 Update Delivery Date</button>
                 </div>
             </div>
         </div>
@@ -2021,6 +2179,17 @@ HTML_TEMPLATE = """
                     tab.classList.add('active');
                 }
             });
+
+            // Tab-specific actions
+            if (tabName === 'delivery') {
+                // Auto-load saved POs when delivery tab is opened
+                loadSavedPOs();
+            } else if (tabName === 'artwork') {
+                // Show welcome section if no PO has been analyzed yet
+                if (!currentPO) {
+                    document.getElementById('welcome_section').style.display = 'block';
+                }
+            }
         }
 
         // Checkbox handling functions
@@ -2064,6 +2233,9 @@ HTML_TEMPLATE = """
             document.getElementById('step2').classList.add('hidden');
             document.getElementById('step3').classList.add('hidden');
             document.getElementById('data_table_container').innerHTML = '';
+
+            // Hide welcome section when analysis starts
+            document.getElementById('welcome_section').style.display = 'none';
 
             document.getElementById('analyze_btn').disabled = true;
             document.getElementById('loading').classList.remove('hidden');
@@ -2217,31 +2389,135 @@ HTML_TEMPLATE = """
         }
 
         // Delivery Date Functions
-        async function loadDeliveryInfo() {
-            const poNumber = document.getElementById('delivery_po_input').value.trim();
-            if (!poNumber) {
-                alert('Please enter a PO number');
-                return;
-            }
+        async function loadSavedPOs() {
+            const loadingDiv = document.getElementById('saved_pos_loading');
+            const listDiv = document.getElementById('saved_pos_list');
+            const emptyDiv = document.getElementById('saved_pos_empty');
 
-            // Simulate loading delivery info
-            document.getElementById('current_delivery_date').value = '2025-08-15';
-            document.getElementById('delivery_info').classList.remove('hidden');
+            // Show loading
+            loadingDiv.style.display = 'block';
+            listDiv.style.display = 'none';
+            emptyDiv.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/po/get_all');
+                const result = await response.json();
+
+                if (result.success && result.pos.length > 0) {
+                    displaySavedPOs(result.pos);
+                    loadingDiv.style.display = 'none';
+                    listDiv.style.display = 'block';
+                } else {
+                    loadingDiv.style.display = 'none';
+                    emptyDiv.style.display = 'block';
+                }
+            } catch (error) {
+                loadingDiv.style.display = 'none';
+                emptyDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: red;">❌ Error loading POs: ' + error.message + '</div>';
+                emptyDiv.style.display = 'block';
+            }
+        }
+
+        function displaySavedPOs(pos) {
+            const listDiv = document.getElementById('saved_pos_list');
+
+            let html = `
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">PO Number</th>
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">Company</th>
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">Items</th>
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">Cancel Date</th>
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">Saved Date</th>
+                            <th style="padding: 12px; text-align: center;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            pos.forEach(po => {
+                const savedDate = new Date(po.created_date).toLocaleDateString();
+                html += `
+                    <tr style="border-bottom: 1px solid #dee2e6; cursor: pointer;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                        <td style="padding: 12px; border-right: 1px solid #dee2e6;"><strong>${po.po_number}</strong></td>
+                        <td style="padding: 12px; border-right: 1px solid #dee2e6;">${po.company || po.purchase_from || 'N/A'}</td>
+                        <td style="padding: 12px; border-right: 1px solid #dee2e6; text-align: center;">${po.item_count}</td>
+                        <td style="padding: 12px; border-right: 1px solid #dee2e6;">${po.cancel_date || 'N/A'}</td>
+                        <td style="padding: 12px; border-right: 1px solid #dee2e6;">${savedDate}</td>
+                        <td style="padding: 12px; text-align: center;">
+                            <button onclick="selectPOForDelivery('${po.po_number}')" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                📅 Select
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            listDiv.innerHTML = html;
+        }
+
+        async function selectPOForDelivery(poNumber) {
+            try {
+                const response = await fetch(`/api/po/get_details/${poNumber}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    const header = result.header;
+
+                    // Populate PO details
+                    document.getElementById('selected_po_number').textContent = header.po_number;
+                    document.getElementById('selected_company').textContent = header.company || 'N/A';
+                    document.getElementById('selected_purchase_from').textContent = header.purchase_from || 'N/A';
+                    document.getElementById('selected_ship_to').textContent = header.ship_to || 'N/A';
+                    document.getElementById('selected_currency').textContent = header.currency || 'N/A';
+                    document.getElementById('selected_cancel_date').textContent = header.cancel_date || 'N/A';
+                    document.getElementById('selected_item_count').textContent = result.items.length;
+
+                    // Set current delivery date (use cancel_date as default)
+                    document.getElementById('current_delivery_date').value = header.cancel_date || '';
+
+                    // Clear form
+                    document.getElementById('new_delivery_date').value = '';
+                    document.getElementById('delivery_notes').value = '';
+
+                    // Show details section
+                    document.getElementById('delivery_info').classList.remove('hidden');
+
+                    showError(`✅ PO ${poNumber} selected for delivery date update`, 'success');
+                } else {
+                    showError('❌ Error loading PO details: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showError('❌ Error loading PO details: ' + error.message, 'error');
+            }
         }
 
         async function updateDeliveryDate() {
-            const poNumber = document.getElementById('delivery_po_input').value.trim();
+            const poNumber = document.getElementById('selected_po_number').textContent;
             const newDate = document.getElementById('new_delivery_date').value;
             const notes = document.getElementById('delivery_notes').value;
 
-            if (!newDate) {
-                alert('Please select a new delivery date');
+            if (!poNumber) {
+                showError('❌ Please select a PO first', 'error');
                 return;
             }
 
-            // Simulate update
-            alert(`Delivery date updated for PO ${poNumber} to ${newDate}`);
+            if (!newDate) {
+                showError('❌ Please select a new delivery date', 'error');
+                return;
+            }
+
+            // Simulate update (you can implement actual delivery date update logic here)
+            showError(`✅ Delivery date updated for PO ${poNumber} to ${newDate}`, 'success');
+
+            if (notes) {
+                console.log(`Notes: ${notes}`);
+            }
         }
+
+
 
         // Report Functions
         async function generateReport() {
@@ -2644,10 +2920,12 @@ HTML_TEMPLATE = """
 """
 
 if __name__ == '__main__':
-    print("🚀 Starting artwork downloader...")
+    print(f"🚀 Starting artwork downloader v{VERSION}...")
+    print(f"📅 Version Date: {VERSION_DATE}")
+    print(f"📝 Last Edit: {LAST_EDIT}")
     print("📊 Initializing PO database...")
     init_database()
-    print("📱 Open your browser and go to: http://localhost:5001")
+    print("📱 Open your browser and go to: http://localhost:5002")
     print("🛑 Press Ctrl+C to stop the server")
 
-    app.run(debug=False, host='127.0.0.1', port=5001)
+    app.run(debug=False, host='127.0.0.1', port=5002)

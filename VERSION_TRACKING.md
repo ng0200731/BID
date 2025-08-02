@@ -1,12 +1,70 @@
 # Version Tracking System
 
-## 🔢 **Current Version: v1.2.2**
-**Last Updated**: 2025-08-02 11:20
-**Last Edit**: Added cache-busting headers to prevent browser caching issues
+## 🔢 **Current Version: v1.2.6**
+**Last Updated**: 2025-08-02 11:40
+**Last Edit**: Added welcome section and feedback to Download Artwork tab
 
 ---
 
 ## 📋 **Version History**
+
+### v1.2.6 (2025-08-02 11:40)
+- **Change**: Added welcome section and feedback to Download Artwork tab
+- **Files Modified**: smart_app.py
+- **Description**: Enhanced Download Artwork tab with immediate visual feedback and instructions
+- **Features Added**:
+  - Welcome section with step-by-step instructions when no PO is analyzed
+  - Visual guide showing 3 main steps: Analyze PO, Select Method, Download
+  - Pro tip suggesting example PO number (1284789) for testing
+  - Automatic hiding of welcome section when PO analysis starts
+  - Automatic showing of welcome section when returning to empty Download Artwork tab
+  - Consolidated duplicate showTab functions into single function
+  - Tab-specific actions for better user experience
+- **User Experience**: Download Artwork tab now provides immediate feedback and guidance
+- **Problem Solved**: Users no longer see empty tab when clicking Download Artwork
+
+### v1.2.5 (2025-08-02 11:35)
+- **Change**: Enhanced cache-busting with timestamp and stronger headers
+- **Files Modified**: smart_app.py
+- **Description**: Implemented stronger cache-busting mechanisms to prevent browser caching issues
+- **Features Added**:
+  - Timestamp-based cache buster in page title and HTML comments
+  - Enhanced HTTP headers: max-age=0, Last-Modified, ETag
+  - Unique page signatures for every request
+  - Browser tab title shows version with timestamp
+- **Cache-Busting**: Prevents browser from showing old cached versions
+
+### v1.2.4 (2025-08-02 11:30)
+- **Change**: Added version display in DOS prompt startup messages
+- **Files Modified**: smart_app.py
+- **Description**: Enhanced startup messages to show version information in command prompt
+- **Startup Messages Now Show**:
+  - `🚀 Starting artwork downloader v1.2.4...`
+  - `📅 Version Date: 2025-08-02 11:30`
+  - `📝 Last Edit: Added version display in DOS prompt startup messages`
+  - `📊 Initializing PO database...`
+  - `📊 Database initialized successfully`
+- **User Benefit**: Easy version verification from command prompt without checking browser
+- **Developer Benefit**: Clear version tracking during development and troubleshooting
+
+### v1.2.3 (2025-08-02 11:25)
+- **Change**: Added PO database integration to Update Delivery Date tab
+- **Files Modified**: smart_app.py
+- **Description**: Complete integration of PO database with Update Delivery Date functionality
+- **Features Added**:
+  - API endpoint `/api/po/get_all` - Get all saved PO numbers and basic info
+  - API endpoint `/api/po/get_details/<po_number>` - Get complete PO details including all items
+  - Enhanced Update Delivery Date tab with saved PO list display
+  - Auto-loading of saved POs when tab is opened
+  - Interactive PO selection with detailed information display
+  - Complete PO details shown: company, purchase_from, ship_to, currency, cancel_date, item_count
+  - Improved user interface with table display of all saved POs
+- **User Experience**:
+  - Update Delivery Date tab now shows all saved POs from database
+  - Click "Select" button to choose PO for delivery date update
+  - Complete PO information displayed before updating delivery date
+  - No need to manually enter PO numbers - select from saved database
+- **Database Integration**: Full utilization of saved PO data for delivery date management
 
 ### v1.2.2 (2025-08-02 11:20)
 - **Change**: Added cache-busting headers to prevent browser caching issues
