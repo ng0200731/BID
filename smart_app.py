@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.3.7"
-VERSION_DATE = "2025-08-02 12:35"
-LAST_EDIT = "Fixed complete item data extraction - now captures Color, Qty, Unit Price, Extension correctly"
+VERSION = "1.4.5"
+VERSION_DATE = "2025-08-02 13:05"
+LAST_EDIT = "Fixed 'Analyzing PO data...' overlay to persist until analysis complete, not auto-hide"
 
 
 
@@ -1947,8 +1947,8 @@ HTML_TEMPLATE = """
     <div class="container">
 
 
-        <!-- Tab Navigation -->
-        <div class="tabs">
+        <!-- Tab Navigation - Fixed/Sticky -->
+        <div class="tabs" style="position: sticky; top: 0; z-index: 1000; background: white; border-bottom: 2px solid #ddd; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
             <button class="tab active" onclick="showTab('artwork')">Download Artwork</button>
             <button class="tab" onclick="showTab('delivery')">Update Delivery Date</button>
             <button class="tab" onclick="showTab('report')">Report</button>
@@ -1965,13 +1965,11 @@ HTML_TEMPLATE = """
                 <label for="po_input">PO Number:</label>
                 <input type="text" id="po_input" placeholder="Enter PO number (e.g., 1284789)" />
                 <button class="btn" onclick="analyzePO()" id="analyze_btn">Analyze PO</button>
+                <button class="btn" onclick="clearEverything()" id="new_btn" style="background: #28a745; margin-left: 10px;">🆕 NEW</button>
             </div>
 
             <!-- Error/Success Messages -->
             <div id="error_container"></div>
-            <div id="loading" class="loading hidden">
-                Analyzing PO data...
-            </div>
 
             <!-- Welcome/Instructions Section -->
             <div id="welcome_section" style="margin-top: 30px; padding: 25px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 10px; border-left: 4px solid #007bff;">
@@ -2379,10 +2377,38 @@ HTML_TEMPLATE = """
                     console.log('Selected method:', selectedMethod);
                 });
             });
+
+            // Restore form state on page load
+            restoreFormState();
         });
+
+        // State preservation functions
+        function saveFormState() {
+            const state = {
+                po_input: document.getElementById('po_input')?.value || '',
+                current_delivery_date: document.getElementById('current_delivery_date')?.value || '',
+                new_delivery_date: document.getElementById('new_delivery_date')?.value || '',
+                delivery_notes: document.getElementById('delivery_notes')?.value || ''
+            };
+            sessionStorage.setItem('formState', JSON.stringify(state));
+        }
+
+        function restoreFormState() {
+            const savedState = sessionStorage.getItem('formState');
+            if (savedState) {
+                const state = JSON.parse(savedState);
+                if (document.getElementById('po_input')) document.getElementById('po_input').value = state.po_input || '';
+                if (document.getElementById('current_delivery_date')) document.getElementById('current_delivery_date').value = state.current_delivery_date || '';
+                if (document.getElementById('new_delivery_date')) document.getElementById('new_delivery_date').value = state.new_delivery_date || '';
+                if (document.getElementById('delivery_notes')) document.getElementById('delivery_notes').value = state.delivery_notes || '';
+            }
+        }
 
         // Tab switching
         function showTab(tabName) {
+            // Save current form state before switching
+            saveFormState();
+
             // Hide all tab contents
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.remove('active');
@@ -2412,12 +2438,48 @@ HTML_TEMPLATE = """
             if (tabName === 'delivery') {
                 // Auto-load saved POs when delivery tab is opened
                 loadSavedPOs();
+                // Hide the Complete PO Details section until a PO is selected
+                document.getElementById('delivery_info').classList.add('hidden');
             } else if (tabName === 'artwork') {
                 // Show welcome section if no PO has been analyzed yet
                 if (!currentPO) {
                     document.getElementById('welcome_section').style.display = 'block';
                 }
             }
+
+            // Restore form state after switching
+            setTimeout(restoreFormState, 100); // Small delay to ensure elements are loaded
+        }
+
+        // Clear everything function for NEW button
+        function clearEverything() {
+            // Clear form inputs
+            document.getElementById('po_input').value = '';
+
+            // Hide all steps except step 1
+            document.getElementById('step2').classList.add('hidden');
+            document.getElementById('step3').classList.add('hidden');
+            document.getElementById('progress_step').classList.add('hidden');
+
+            // Clear containers
+            document.getElementById('data_table_container').innerHTML = '';
+            document.getElementById('error_container').innerHTML = '';
+            document.getElementById('progress_info').innerHTML = '';
+
+            // Show welcome section
+            document.getElementById('welcome_section').style.display = 'block';
+
+            // Reset global variables
+            currentPO = null;
+
+            // Clear session storage
+            sessionStorage.removeItem('formState');
+
+            // Re-enable analyze button
+            document.getElementById('analyze_btn').disabled = false;
+            document.getElementById('analyze_btn').textContent = 'Analyze PO';
+
+            showError('✅ Cleared everything. Ready for new PO.', 'success');
         }
 
         // Checkbox handling functions
@@ -2466,7 +2528,7 @@ HTML_TEMPLATE = """
             document.getElementById('welcome_section').style.display = 'none';
 
             document.getElementById('analyze_btn').disabled = true;
-            document.getElementById('loading').classList.remove('hidden');
+            showError('🔍 Analyzing PO data...', 'success', true); // persistent = true
 
             try {
                 const response = await fetch('/api/analyze_po?t=' + Date.now(), {
@@ -2479,6 +2541,7 @@ HTML_TEMPLATE = """
                 console.log('API Response:', result); // Debug log
 
                 if (result.success) {
+                    clearError(); // Clear the persistent "Analyzing PO data..." message
                     currentPO = result;
                     window.currentPoData = result;  // Store globally for checkbox functions
                     console.log('Items received:', result.items.length); // Debug log
@@ -2487,13 +2550,14 @@ HTML_TEMPLATE = """
                     document.getElementById('step2').classList.remove('hidden');
                     document.getElementById('step3').classList.remove('hidden');
                 } else {
+                    clearError(); // Clear the persistent message before showing error
                     showError(result.error || 'Failed to analyze PO');
                 }
             } catch (error) {
+                clearError(); // Clear the persistent message before showing error
                 showError('Error analyzing PO: ' + error.message);
             } finally {
                 document.getElementById('analyze_btn').disabled = false;
-                document.getElementById('loading').classList.add('hidden');
             }
         }
         
@@ -2526,10 +2590,11 @@ HTML_TEMPLATE = """
             const container = document.getElementById('data_table_container');
 
             let html = `
-                <div style="margin-bottom: 15px;">
+                <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                     <button class="btn" onclick="selectAllItems(true)">✅ Select All</button>
                     <button class="btn" onclick="selectAllItems(false)" style="background: #e53e3e;">❌ Deselect All</button>
-                    <span style="margin-left: 20px; font-weight: bold;">Selected: <span id="selected_count">${items.length}</span> / ${items.length}</span>
+                    <span style="font-weight: bold;">Selected: <span id="selected_count">${items.length}</span> / ${items.length}</span>
+                    <button class="btn" onclick="startDownload()" id="download_btn_top" style="background: #28a745; margin-left: 20px;">🚀 Start Download</button>
                 </div>
                 <table class="data-table">
                     <thead>
@@ -2587,10 +2652,24 @@ HTML_TEMPLATE = """
             // 🆕 PROMPT FOR PO DATABASE SAVE
             const savePODetails = await promptSavePODetails(currentPO.po_number);
 
+            // Save current scroll position
+            const currentScrollY = window.scrollY;
+
+            // Disable both download buttons
             const button = document.getElementById('download_btn');
-            button.disabled = true;
-            button.innerHTML = `⏳ Starting Download (${selectedItems.length} items)...`;
+            const topButton = document.getElementById('download_btn_top');
+            if (button) {
+                button.disabled = true;
+                button.innerHTML = `⏳ Starting Download (${selectedItems.length} items)...`;
+            }
+            if (topButton) {
+                topButton.disabled = true;
+                topButton.innerHTML = `⏳ Starting Download (${selectedItems.length} items)...`;
+            }
             document.getElementById('progress_step').classList.remove('hidden');
+
+            // Restore scroll position to prevent jumping to top
+            window.scrollTo(0, currentScrollY);
 
             try {
                 // Save PO details to database if user chose to
@@ -3180,17 +3259,57 @@ HTML_TEMPLATE = """
             }
         }
 
-        function showError(message, type = 'error') {
+        function showError(message, type = 'error', persistent = false) {
             const container = document.getElementById('error_container');
             const className = type === 'success' ? 'success' : 'error';
-            container.innerHTML = `<div class="${className}" style="padding: 10px; margin: 10px 0; border-radius: 4px; ${type === 'success' ? 'background: #d4edda; color: #155724; border: 1px solid #c3e6cb;' : 'background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'}">${message}</div>`;
 
-            // Auto-hide success messages after 3 seconds
-            if (type === 'success') {
+            // Full-screen overlay styling
+            const overlayStyle = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(0, 0, 0, 0.9);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 9999;
+                backdrop-filter: blur(2px);
+            `;
+
+            const messageStyle = `
+                background: rgba(128, 128, 128, 0.95);
+                color: #333;
+                padding: 30px 50px;
+                border-radius: 15px;
+                font-size: 18px;
+                font-weight: 600;
+                text-align: center;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+                border: 2px solid rgba(255, 255, 255, 0.2);
+                max-width: 80%;
+                word-wrap: break-word;
+            `;
+
+            container.innerHTML = `
+                <div class="${className}" style="${overlayStyle}">
+                    <div style="${messageStyle}">${message}</div>
+                </div>
+            `;
+
+            // Auto-hide messages after 3 seconds, unless persistent
+            if (!persistent) {
                 setTimeout(() => {
                     container.innerHTML = '';
                 }, 3000);
             }
+        }
+
+        // Function to clear persistent messages
+        function clearError() {
+            const container = document.getElementById('error_container');
+            container.innerHTML = '';
         }
 
 

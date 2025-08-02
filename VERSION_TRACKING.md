@@ -1,8 +1,8 @@
 # Version Tracking System
 
-## 🔢 **Current Version: v1.3.4**
-**Last Updated**: 2025-08-02 12:20
-**Last Edit**: Added complete address and contact information section to PO details
+## 🔢 **Current Version: v1.4.5**
+**Last Updated**: 2025-08-02 13:05
+**Last Edit**: Fixed 'Analyzing PO data...' overlay to persist until analysis complete, not auto-hide
 
 ---
 
