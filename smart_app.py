@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Smart E-BrandID Downloader
 1. Input PO# first
@@ -14,8 +15,8 @@ Version History:
 """
 
 # Version information
-VERSION = "3.0.1"
-VERSION_DATE = "2025-07-31"
+VERSION = "3.1.0"
+VERSION_DATE = "2025-08-01"
 
 from flask import Flask, render_template_string, request, jsonify
 import os
@@ -1087,6 +1088,22 @@ HTML_TEMPLATE = """
             background: #ccc;
             cursor: not-allowed;
         }
+
+        .btn-secondary {
+            background: #f8f9fa;
+            color: #333;
+            border: 1px solid #ddd;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 0.9em;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
         
         .po-info {
             background: #f9f9f9;
@@ -1283,7 +1300,7 @@ HTML_TEMPLATE = """
     <div class="container">
         <!-- Version Info -->
         <div style="text-align: center; padding: 10px; background: #f9f9f9; border: 1px solid #e0e0e0; margin-bottom: 20px;">
-            <strong>Version 3.0.1</strong> - Released 2025-07-31 | 4 Download Methods Restored
+            <strong>Version 3.1.0</strong> - Released 2025-08-01 | Streamlined UI with Method 5 Default
         </div>
 
         <!-- Tab Navigation -->
@@ -1319,8 +1336,29 @@ HTML_TEMPLATE = """
 
             <div id="po_info" class="po-info"></div>
 
-            <h3>Choose Download Method:</h3>
-            <div class="method-selection">
+            <h3>Download Method:</h3>
+
+            <!-- Default Method 5 Display -->
+            <div class="default-method-display">
+                <div class="method-card selected" data-method="guaranteed_complete">
+                    <div class="method-header">
+                        <h4>✨ Guaranteed Complete Download</h4>
+                        <span class="success-rate">100% Success</span>
+                    </div>
+                    <p>100% success rate with direct URL extraction. Visual clarity: 19 items = 19 files. Smart numbering for duplicates (_2, _3, _4).</p>
+                    <div class="method-details">
+                        <small>RECOMMENDED for all POs - Option 5 from unified_downloader.py</small>
+                    </div>
+                </div>
+                <div style="text-align: center; margin-top: 15px;">
+                    <button class="btn-secondary" onclick="toggleMethodSelection()" id="toggle_methods_btn">
+                        📋 Show All Download Methods
+                    </button>
+                </div>
+            </div>
+
+            <!-- All Methods (Hidden by Default) -->
+            <div class="method-selection hidden" id="all_methods" style="display: none;">
                 <div class="method-card" data-method="super_fast">
                     <div class="method-header">
                         <h4>🚀 Super Fast</h4>
@@ -1374,6 +1412,12 @@ HTML_TEMPLATE = """
                     <div class="method-details">
                         <small>RECOMMENDED for all POs - Option 5 from unified_downloader.py</small>
                     </div>
+                </div>
+
+                <div style="text-align: center; margin-top: 15px;">
+                    <button class="btn-secondary" onclick="toggleMethodSelection()" id="hide_methods_btn">
+                        ⬆️ Hide Other Methods
+                    </button>
                 </div>
             </div>
         </div>
@@ -1516,6 +1560,9 @@ HTML_TEMPLATE = """
 
         // Method selection
         document.addEventListener('DOMContentLoaded', function() {
+            // Set Method 5 as default
+            selectedMethod = 'guaranteed_complete';
+
             // Add click handlers for method cards
             document.querySelectorAll('.method-card').forEach(card => {
                 card.addEventListener('click', function() {
@@ -1642,11 +1689,16 @@ HTML_TEMPLATE = """
             `;
 
             // Method cards are now static in HTML, no need to generate them dynamically
-            // Just ensure no method is pre-selected
-            selectedMethod = null;
+            // Ensure Method 5 (Guaranteed Complete Download) is selected by default
+            selectedMethod = 'guaranteed_complete';
             document.querySelectorAll('.method-card').forEach(card => {
                 card.classList.remove('selected');
             });
+            // Select Method 5 as default
+            const method5Card = document.querySelector('[data-method="guaranteed_complete"]');
+            if (method5Card) {
+                method5Card.classList.add('selected');
+            }
         }
         
 
@@ -1854,6 +1906,29 @@ HTML_TEMPLATE = """
                 }
             } catch (error) {
                 showError('❌ Error opening folder: ' + error.message, 'error');
+            }
+        }
+
+        function toggleMethodSelection() {
+            const defaultDisplay = document.querySelector('.default-method-display');
+            const allMethods = document.getElementById('all_methods');
+
+            if (allMethods.style.display === 'none' || allMethods.classList.contains('hidden')) {
+                // Show all methods
+                defaultDisplay.style.display = 'none';
+                allMethods.style.display = 'block';
+                allMethods.classList.remove('hidden');
+            } else {
+                // Hide all methods, show default
+                defaultDisplay.style.display = 'block';
+                allMethods.style.display = 'none';
+                allMethods.classList.add('hidden');
+
+                // Reset selection to Method 5
+                document.querySelectorAll('.method-card').forEach(card => {
+                    card.classList.remove('selected');
+                });
+                document.querySelector('[data-method="guaranteed_complete"]').classList.add('selected');
             }
         }
 
