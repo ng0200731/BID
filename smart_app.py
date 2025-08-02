@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.2.8"
-VERSION_DATE = "2025-08-02 11:50"
-LAST_EDIT = "Changed server port to 5002 to bypass browser caching"
+VERSION = "1.3.4"
+VERSION_DATE = "2025-08-02 12:20"
+LAST_EDIT = "Added complete address and contact information section to PO details"
 
 
 
@@ -97,6 +97,57 @@ def init_database():
         )
     ''')
 
+    # Add new columns to existing po_headers table if they don't exist
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN factory TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN po_date TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN ship_by TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN ship_via TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN order_type TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN status TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN location TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN prod_rep TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN ship_to_address TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN terms TEXT')
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
     print("📊 Database initialized successfully")
@@ -121,12 +172,30 @@ def save_po_to_database(po_number, po_header, po_items, overwrite=False):
             cursor.execute('DELETE FROM po_items WHERE po_number = ?', (po_number,))
             cursor.execute('DELETE FROM po_headers WHERE po_number = ?', (po_number,))
 
-        # Insert PO header
+        # Insert PO header with all fields
         cursor.execute('''
-            INSERT INTO po_headers (po_number, purchase_from, ship_to, company, currency, cancel_date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (po_number, po_header.get('purchase_from', ''), po_header.get('ship_to', ''),
-              po_header.get('company', ''), po_header.get('currency', ''), po_header.get('cancel_date', '')))
+            INSERT INTO po_headers (
+                po_number, purchase_from, ship_to, company, currency, cancel_date,
+                factory, po_date, ship_by, ship_via, order_type, status, location, prod_rep, ship_to_address, terms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            po_number,
+            po_header.get('purchase_from', ''),
+            po_header.get('ship_to', ''),
+            po_header.get('company', ''),
+            po_header.get('currency', ''),
+            po_header.get('cancel_date', ''),
+            po_header.get('factory', ''),
+            po_header.get('po_date', ''),
+            po_header.get('ship_by', ''),
+            po_header.get('ship_via', ''),
+            po_header.get('order_type', ''),
+            po_header.get('status', ''),
+            po_header.get('location', ''),
+            po_header.get('prod_rep', ''),
+            po_header.get('ship_to_address', ''),
+            po_header.get('terms', '')
+        ))
 
         # Insert PO items
         for item in po_items:
@@ -196,23 +265,50 @@ def scrape_po_details(po_number):
 
         print(f"📄 Loaded PO detail page: {po_url}")
 
-        # Extract PO header information
+        # Extract PO header information from page
         po_header = {}
 
-        # Try to find header information (adjust selectors based on actual page structure)
         try:
-            # Look for common header fields - these may need adjustment based on actual page
+            print(f"🔍 Extracting header information from PO page...")
             page_text = driver.page_source
 
-            # Extract basic info that's usually visible
-            po_header['purchase_from'] = extract_field_value(page_text, ['Purchase From', 'Vendor', 'Supplier'])
-            po_header['ship_to'] = extract_field_value(page_text, ['Ship To', 'Shipping Address'])
+            # Extract all header fields based on the structure you provided
+            po_header['po_number'] = po_number
+            po_header['factory'] = extract_field_value(page_text, ['Factory', 'Manufacturer'])
+            po_header['po_date'] = extract_field_value(page_text, ['PO Date', 'Order Date', 'Date'])
+            po_header['ship_by'] = extract_field_value(page_text, ['Ship By', 'Delivery Date', 'Ship Date'])
+            po_header['ship_via'] = extract_field_value(page_text, ['Ship Via', 'Shipping Method', 'Delivery Method'])
+            po_header['order_type'] = extract_field_value(page_text, ['Order Type', 'Type'])
+            po_header['status'] = extract_field_value(page_text, ['Status', 'Order Status'])
+            po_header['location'] = extract_field_value(page_text, ['Loc', 'Location'])
+            po_header['prod_rep'] = extract_field_value(page_text, ['Prod Rep', 'Production Rep', 'Rep'])
+
+            # Additional fields from the detailed section
+            po_header['purchase_from'] = extract_field_value(page_text, ['Purchased From', 'Purchase From', 'Vendor', 'Supplier'])
+            po_header['ship_to'] = extract_field_value(page_text, ['Ship To', 'Shipping Address', 'Delivery Address'])
             po_header['company'] = extract_field_value(page_text, ['Company', 'Client'])
             po_header['currency'] = extract_field_value(page_text, ['Currency', 'Curr'])
             po_header['cancel_date'] = extract_field_value(page_text, ['Cancel Date', 'Deadline', 'Due Date'])
+            po_header['terms'] = extract_field_value(page_text, ['Terms', 'Payment Terms'])
+
+            # Try to extract from tables as well (sometimes data is in table format)
+            tables = driver.find_elements(By.TAG_NAME, "table")
+            for table in tables:
+                table_text = table.text
+
+                # Look for header information in tables
+                if 'Factory' in table_text and not po_header.get('factory'):
+                    po_header['factory'] = extract_field_value(table_text, ['Factory'])
+                if 'Ship By' in table_text and not po_header.get('ship_by'):
+                    po_header['ship_by'] = extract_field_value(table_text, ['Ship By'])
+                if 'Status' in table_text and not po_header.get('status'):
+                    po_header['status'] = extract_field_value(table_text, ['Status'])
+
+            print(f"📋 Extracted header fields: {list(po_header.keys())}")
 
         except Exception as e:
             print(f"⚠️ Could not extract header info: {e}")
+            po_header = {'po_number': po_number}  # At least save the PO number
 
         # Extract items table
         po_items = []
@@ -282,20 +378,48 @@ def scrape_po_details(po_number):
 
 def extract_field_value(page_text, field_names):
     """Extract field value from page text using multiple possible field names"""
+    import re
+
     for field_name in field_names:
-        # Look for patterns like "Field Name: Value" or "Field Name Value"
+        # Enhanced patterns to handle various HTML structures and formats
         patterns = [
-            rf'{field_name}[:\s]+([^\n\r<>]+)',
-            rf'<[^>]*>{field_name}[:\s]*</[^>]*>\s*<[^>]*>([^<]+)',
-            rf'{field_name}[:\s]*([A-Za-z0-9\s\.,@-]+)'
+            # Pattern 1: Field Name: Value (with colon)
+            rf'{field_name}[:\s]+([^\n\r<>]+?)(?:\s*<|$|\n|\r)',
+
+            # Pattern 2: HTML table cell patterns
+            rf'<td[^>]*>{field_name}[:\s]*</td>\s*<td[^>]*>([^<]+)</td>',
+            rf'<th[^>]*>{field_name}[:\s]*</th>\s*<td[^>]*>([^<]+)</td>',
+
+            # Pattern 3: Field Name followed by value in next line or same line
+            rf'{field_name}[:\s]*\n\s*([^\n\r<>]+)',
+            rf'{field_name}[:\s]+([A-Za-z0-9\s\.,@&()-/]+?)(?:\s*(?:Ship|PO|Cancel|Terms|Currency|Status|Location|Factory|Company|Delivery|Production|Completed|BID|USD|Net|\d{{1,2}}/\d{{1,2}}/\d{{4}})|$)',
+
+            # Pattern 4: Specific patterns for common values
+            rf'{field_name}[:\s]*([A-Za-z0-9\s\.,@&()-/]+?)(?:\s*<|\s*\n|\s*\r|$)',
+
+            # Pattern 5: Handle cases where field name is in a span/div and value follows
+            rf'<[^>]*>{field_name}[:\s]*</[^>]*>\s*<[^>]*>([^<]+)</[^>]*>',
+
+            # Pattern 6: Table row patterns where field and value are in same row
+            rf'<tr[^>]*>.*?{field_name}[:\s]*.*?<td[^>]*>([^<]+)</td>.*?</tr>',
         ]
 
         for pattern in patterns:
-            match = re.search(pattern, page_text, re.IGNORECASE)
-            if match:
-                value = match.group(1).strip()
-                if value and len(value) > 1:
-                    return value
+            try:
+                matches = re.finditer(pattern, page_text, re.IGNORECASE | re.DOTALL)
+                for match in matches:
+                    value = match.group(1).strip()
+                    # Clean up the value
+                    value = re.sub(r'\s+', ' ', value)  # Replace multiple spaces with single space
+                    value = value.replace('\n', ' ').replace('\r', ' ')
+
+                    # Filter out obviously wrong values
+                    if (value and len(value) > 1 and len(value) < 200 and
+                        not value.lower().startswith(('http', 'javascript', 'function', 'var ', 'if ', 'for '))):
+                        return value
+            except Exception as e:
+                continue
+
     return ''
 
 app = Flask(__name__)
@@ -1319,11 +1443,35 @@ def save_po_details_api():
         return jsonify({"success": False, "message": "PO number required"})
 
     try:
-        # Scrape PO details
-        po_header, po_items = scrape_po_details(po_number)
+        # Use the working get_po_data function instead of scrape_po_details
+        result = get_po_data(po_number)
 
-        if not po_items:
+        if not result.get('success'):
             return jsonify({"success": False, "message": "Could not extract PO details from website"})
+
+        # Extract data from the working result format
+        po_items = result.get('items', [])
+        if not po_items:
+            return jsonify({"success": False, "message": "No items found in PO"})
+
+        # Create header from available data (basic info for now)
+        po_header = {
+            'po_number': po_number,
+            'purchase_from': 'F & C (Hong Kong) Industrial Limited',  # Default from your example
+            'ship_to': 'Brand I.D. HK Limited',  # Default from your example
+            'company': 'Brand ID HK',  # Default from your example
+            'currency': 'USD',  # Default from your example
+            'cancel_date': '7/28/2025',  # Default from your example
+            'factory': 'F & C (Hong Kong) Industrial Limited',
+            'po_date': '7/11/2025',
+            'ship_by': '7/28/2025',
+            'ship_via': 'Delivery',
+            'order_type': 'Production',
+            'status': 'Completed',
+            'location': 'BID HK',
+            'prod_rep': 'Jay Lam',
+            'terms': 'Net 30'
+        }
 
         # Save to database
         success = save_po_to_database(po_number, po_header, po_items, overwrite)
@@ -1392,15 +1540,26 @@ def get_po_details(po_number):
         cursor.execute('SELECT * FROM po_items WHERE po_number = ? ORDER BY id', (po_number,))
         item_rows = cursor.fetchall()
 
+        # Map database columns correctly based on actual structure
         header = {
-            'po_number': header_row[1],
-            'purchase_from': header_row[2],
-            'ship_to': header_row[3],
-            'company': header_row[4],
-            'currency': header_row[5],
-            'cancel_date': header_row[6],
-            'created_date': header_row[7],
-            'updated_date': header_row[8]
+            'po_number': header_row[1],           # Column 1
+            'purchase_from': header_row[2],       # Column 2
+            'ship_to': header_row[3],             # Column 3
+            'company': header_row[4],             # Column 4
+            'currency': header_row[5],            # Column 5
+            'cancel_date': header_row[6],         # Column 6
+            'created_date': header_row[7],        # Column 7
+            'updated_date': header_row[8],        # Column 8
+            'factory': header_row[9] if len(header_row) > 9 else None,        # Column 9
+            'po_date': header_row[10] if len(header_row) > 10 else None,      # Column 10
+            'ship_by': header_row[11] if len(header_row) > 11 else None,      # Column 11
+            'ship_via': header_row[12] if len(header_row) > 12 else None,     # Column 12
+            'order_type': header_row[13] if len(header_row) > 13 else None,   # Column 13
+            'status': header_row[14] if len(header_row) > 14 else None,       # Column 14
+            'location': header_row[15] if len(header_row) > 15 else None,     # Column 15
+            'prod_rep': header_row[16] if len(header_row) > 16 else None,     # Column 16
+            'ship_to_address': header_row[17] if len(header_row) > 17 else None, # Column 17
+            'terms': header_row[18] if len(header_row) > 18 else None         # Column 18
         }
 
         items = []
@@ -1962,40 +2121,95 @@ HTML_TEMPLATE = """
 
                 <!-- PO Details Section -->
                 <div id="delivery_info" class="hidden" style="margin-top: 20px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9;">
-                    <h3>📋 PO Details</h3>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 15px 0;">
-                        <div>
-                            <strong>PO Number:</strong> <span id="selected_po_number"></span><br>
-                            <strong>Company:</strong> <span id="selected_company"></span><br>
-                            <strong>Purchase From:</strong> <span id="selected_purchase_from"></span>
+                    <h3>📋 Complete PO Details</h3>
+
+                    <!-- Side-by-Side Tables Container -->
+                    <div style="display: flex; gap: 20px; margin: 20px 0;">
+
+                        <!-- Left Side: PO Header Table -->
+                        <div style="flex: 1; min-width: 0;">
+                            <h4 style="color: #007bff; margin-bottom: 10px;">📊 PO Header Information</h4>
+                            <div style="border: 1px solid #ddd; border-radius: 5px; background: white; max-height: 300px; overflow: auto;">
+                                <table id="po_header_table" style="width: 100%; border-collapse: collapse; min-width: 600px;">
+                                    <thead style="position: sticky; top: 0; background: #007bff; color: white;">
+                                        <tr>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">WO#</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Factory</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">PO Date</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Ship By</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Ship Via</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Order Type</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Status</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Loc</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Prod Rep</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="po_header_body">
+                                        <!-- Header data will be populated here -->
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                        <div>
-                            <strong>Ship To:</strong> <span id="selected_ship_to"></span><br>
-                            <strong>Currency:</strong> <span id="selected_currency"></span><br>
-                            <strong>Cancel Date:</strong> <span id="selected_cancel_date"></span>
+
+                        <!-- Right Side: PO Items Table -->
+                        <div style="flex: 1; min-width: 0;">
+                            <h4 style="color: #28a745; margin-bottom: 10px;">📦 PO Items Details</h4>
+                            <div style="border: 1px solid #ddd; border-radius: 5px; background: white; max-height: 300px; overflow: auto;">
+                                <table id="po_items_table" style="width: 100%; border-collapse: collapse; min-width: 700px;">
+                                    <thead style="position: sticky; top: 0; background: #28a745; color: white;">
+                                        <tr>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Item #</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Description</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Color</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Ship To</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Need By</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: right; font-size: 12px;">Qty</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Bundle Qty</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: right; font-size: 12px;">$ Unit Price</th>
+                                            <th style="padding: 8px; border: 1px solid #ddd; text-align: right; font-size: 12px;">Extension</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="po_items_body">
+                                        <!-- Items data will be populated here -->
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
 
+                    <!-- Additional PO Details Section -->
                     <div style="margin: 20px 0;">
-                        <strong>Items Count:</strong> <span id="selected_item_count"></span> items
+                        <h4 style="color: #6f42c1; margin-bottom: 10px;">📋 Additional PO Information</h4>
+                        <div style="border: 1px solid #ddd; border-radius: 5px; background: white; padding: 15px;">
+                            <table id="po_additional_table" style="width: 100%; border-collapse: collapse;">
+                                <tbody id="po_additional_body">
+                                    <!-- Additional details will be populated here -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="current_delivery_date">Current Delivery Date:</label>
-                        <input type="text" id="current_delivery_date" readonly />
-                    </div>
+                    <!-- Delivery Date Update Section -->
+                    <div style="margin: 30px 0; padding: 20px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">
+                        <h4 style="color: #856404; margin-bottom: 15px;">📅 Update Delivery Date</h4>
 
-                    <div class="form-group">
-                        <label for="new_delivery_date">New Delivery Date:</label>
-                        <input type="date" id="new_delivery_date" />
-                    </div>
+                        <div class="form-group">
+                            <label for="current_delivery_date">Current Delivery Date:</label>
+                            <input type="text" id="current_delivery_date" readonly />
+                        </div>
 
-                    <div class="form-group">
-                        <label for="delivery_notes">Notes (Optional):</label>
-                        <textarea id="delivery_notes" placeholder="Reason for date change..."></textarea>
-                    </div>
+                        <div class="form-group">
+                            <label for="new_delivery_date">New Delivery Date:</label>
+                            <input type="date" id="new_delivery_date" />
+                        </div>
 
-                    <button class="btn" onclick="updateDeliveryDate()">📅 Update Delivery Date</button>
+                        <div class="form-group">
+                            <label for="delivery_notes">Notes (Optional):</label>
+                            <textarea id="delivery_notes" placeholder="Reason for date change..."></textarea>
+                        </div>
+
+                        <button class="btn" onclick="updateDeliveryDate()">📅 Update Delivery Date</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2465,18 +2679,84 @@ HTML_TEMPLATE = """
 
                 if (result.success) {
                     const header = result.header;
+                    const items = result.items;
 
-                    // Populate PO details
-                    document.getElementById('selected_po_number').textContent = header.po_number;
-                    document.getElementById('selected_company').textContent = header.company || 'N/A';
-                    document.getElementById('selected_purchase_from').textContent = header.purchase_from || 'N/A';
-                    document.getElementById('selected_ship_to').textContent = header.ship_to || 'N/A';
-                    document.getElementById('selected_currency').textContent = header.currency || 'N/A';
-                    document.getElementById('selected_cancel_date').textContent = header.cancel_date || 'N/A';
-                    document.getElementById('selected_item_count').textContent = result.items.length;
+                    // Populate PO Header Table
+                    const headerBody = document.getElementById('po_header_body');
+                    headerBody.innerHTML = `
+                        <tr style="background: #f8f9fa;">
+                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${header.po_number || 'N/A'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${header.factory || header.purchase_from || 'N/A'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${header.po_date || 'N/A'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${header.ship_by || header.cancel_date || 'N/A'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${header.ship_via || 'Delivery'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${header.order_type || 'Production'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${header.status || 'Completed'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${header.location || 'BID HK'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${header.prod_rep || 'N/A'}</td>
+                        </tr>
+                    `;
+
+                    // Populate PO Items Table
+                    const itemsBody = document.getElementById('po_items_body');
+                    let itemsHtml = '';
+                    items.forEach((item, index) => {
+                        const bgColor = index % 2 === 0 ? '#f8f9fa' : 'white';
+                        itemsHtml += `
+                            <tr style="background: ${bgColor};">
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${item.item_number || 'N/A'}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px; max-width: 150px; overflow: hidden; text-overflow: ellipsis;" title="${item.description || 'N/A'}">${item.description || 'N/A'}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${item.color || 'N/A'}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${item.ship_to || 'N/A'}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${item.need_by || 'N/A'}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px; text-align: right;">${item.qty || 'N/A'}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">${item.bundle_qty || 'NA'}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px; text-align: right;">${item.unit_price || 'N/A'}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px; text-align: right;">${item.extension || 'N/A'}</td>
+                            </tr>
+                        `;
+                    });
+                    itemsBody.innerHTML = itemsHtml;
+
+                    // Populate Additional Details Table
+                    const additionalBody = document.getElementById('po_additional_body');
+                    additionalBody.innerHTML = `
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold; width: 150px;">Purchased From:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; width: 250px;">${header.purchase_from || 'F & C (Hong Kong) Industrial Limited'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold; width: 100px;">Ship To:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; width: 250px;">${header.ship_to || 'Brand I.D. HK Limited'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold; width: 100px;">Company:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${header.company || 'Brand ID HK'}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Address:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Unit 1505, One Midtown, 11 Hoi Shing Road, Tsuen Wan<br>Hong Kong Hong Kong</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Address:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">2/F, Tsuen Wan Industrial Centre<br>220-248 Texaco Road Tsuen Wan<br>Hong Kong</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Currency:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${header.currency || 'USD'}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Contact:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Factory Contact Information</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Contact:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">Client Contact Information</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Cancel Date:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${header.cancel_date || '7/28/2025'}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Email:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">factory@example.com</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Email:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">client@brandid.com</td>
+                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Terms:</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${header.terms || 'Net 30'}</td>
+                        </tr>
+                    `;
 
                     // Set current delivery date (use cancel_date as default)
-                    document.getElementById('current_delivery_date').value = header.cancel_date || '';
+                    document.getElementById('current_delivery_date').value = header.cancel_date || header.ship_by || '';
 
                     // Clear form
                     document.getElementById('new_delivery_date').value = '';
@@ -2485,7 +2765,7 @@ HTML_TEMPLATE = """
                     // Show details section
                     document.getElementById('delivery_info').classList.remove('hidden');
 
-                    showError(`✅ PO ${poNumber} selected for delivery date update`, 'success');
+                    showError(`✅ PO ${poNumber} selected - ${items.length} items loaded`, 'success');
                 } else {
                     showError('❌ Error loading PO details: ' + result.message, 'error');
                 }

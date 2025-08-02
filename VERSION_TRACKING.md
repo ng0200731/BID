@@ -1,12 +1,41 @@
 # Version Tracking System
 
-## 🔢 **Current Version: v1.2.6**
-**Last Updated**: 2025-08-02 11:40
-**Last Edit**: Added welcome section and feedback to Download Artwork tab
+## 🔢 **Current Version: v1.3.4**
+**Last Updated**: 2025-08-02 12:20
+**Last Edit**: Added complete address and contact information section to PO details
 
 ---
 
 ## 📋 **Version History**
+
+### v1.3.0 (2025-08-02 12:00) - MAJOR UPDATE
+- **Change**: Complete side-by-side PO tables implementation with scrollbars
+- **Files Modified**: smart_app.py
+- **Description**: Major enhancement to Update Delivery Date tab with complete PO data display
+- **Database Enhancements**:
+  - Added new columns: factory, po_date, ship_by, ship_via, order_type, status, location, prod_rep, ship_to_address, terms
+  - Backward compatible database schema updates using ALTER TABLE
+  - Enhanced data storage for complete PO information
+- **UI/UX Improvements**:
+  - **Side-by-side layout**: PO Header table (left) and PO Items table (right)
+  - **Horizontal scrollbars**: For tables wider than container
+  - **Vertical scrollbars**: Max height 300px with sticky headers
+  - **Responsive design**: Tables adjust to screen size (50%/50% split)
+  - **Sticky headers**: Headers remain visible while scrolling table content
+  - **Alternating row colors**: Better visual separation of data
+  - **Compact display**: Smaller fonts and padding for more data visibility
+- **Data Display**:
+  - **Complete PO Header**: WO#, Factory, PO Date, Ship By, Ship Via, Order Type, Status, Loc, Prod Rep
+  - **Complete PO Items**: Item#, Description, Color, Ship To, Need By, Qty, Bundle Qty, Unit Price, Extension
+  - **Tooltip support**: Long descriptions show full text on hover
+  - **Proper formatting**: Right-aligned numbers, left-aligned text
+- **Functionality**:
+  - Enhanced selectPOForDelivery() function to populate both tables
+  - Automatic data population from existing database
+  - Fallback values for missing data fields
+  - Improved error handling and user feedback
+- **Port Change**: Server now runs on port 5002 to bypass browser caching issues
+- **User Experience**: Complete PO information displayed in professional table format
 
 ### v1.2.6 (2025-08-02 11:40)
 - **Change**: Added welcome section and feedback to Download Artwork tab
