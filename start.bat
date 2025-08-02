@@ -76,10 +76,10 @@ timeout /t 3 /nobreak >nul
 
 REM Open Chrome browser
 echo Opening Chrome browser...
-start chrome "http://localhost:5001" >nul 2>&1
+start chrome "http://localhost:5002" >nul 2>&1
 if errorlevel 1 (
     echo Chrome not found, opening default browser...
-    start "" "http://localhost:5001" >nul 2>&1
+    start "" "http://localhost:5002" >nul 2>&1
 )
 
 echo.

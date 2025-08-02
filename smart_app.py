@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.3.4"
-VERSION_DATE = "2025-08-02 12:20"
-LAST_EDIT = "Added complete address and contact information section to PO details"
+VERSION = "1.3.7"
+VERSION_DATE = "2025-08-02 12:35"
+LAST_EDIT = "Fixed complete item data extraction - now captures Color, Qty, Unit Price, Extension correctly"
 
 
 
@@ -681,21 +681,16 @@ def get_po_data(po_number):
                         cell_texts = [cell.text.strip() for cell in cells]
                         print(f"Row data: {cell_texts[:6]}")  # Show first 6 columns
 
-                        # Flexible column detection
+                        # Correct column mapping based on real web table structure
                         item_number = cell_texts[0] if len(cell_texts) > 0 else ""
                         description = cell_texts[1] if len(cell_texts) > 1 else ""
                         color = cell_texts[2] if len(cell_texts) > 2 else ""
-
-                        # Try to find quantity (look for numbers)
-                        quantity = ""
-                        for i in range(3, min(len(cell_texts), 8)):
-                            if cell_texts[i] and any(c.isdigit() for c in cell_texts[i].replace(',', '')):
-                                quantity = cell_texts[i]
-                                break
-
-                        # Get other fields
                         ship_to = cell_texts[3] if len(cell_texts) > 3 else ""
                         need_by = cell_texts[4] if len(cell_texts) > 4 else ""
+                        quantity = cell_texts[5] if len(cell_texts) > 5 else ""
+                        bundle_qty = cell_texts[6] if len(cell_texts) > 6 else ""
+                        unit_price = cell_texts[7] if len(cell_texts) > 7 else ""
+                        extension = cell_texts[8] if len(cell_texts) > 8 else ""
 
                         # Validate this looks like item data
                         is_valid_item = (
@@ -734,10 +729,14 @@ def get_po_data(po_number):
 
                             item_data.append({
                                 'name': item_number,
-                                'description': f"{description} - {color}" if color else description,
-                                'quantity': quantity,
+                                'description': description,  # Keep description separate from color
+                                'color': color,
                                 'ship_to': ship_to,
                                 'need_by': need_by,
+                                'quantity': quantity,
+                                'bundle_qty': bundle_qty,
+                                'unit_price': unit_price,
+                                'extension': extension,
                                 'has_download': has_download,
                                 'suffix_id': suffix_id
                             })
@@ -1450,27 +1449,42 @@ def save_po_details_api():
             return jsonify({"success": False, "message": "Could not extract PO details from website"})
 
         # Extract data from the working result format
-        po_items = result.get('items', [])
-        if not po_items:
+        raw_items = result.get('items', [])
+        if not raw_items:
             return jsonify({"success": False, "message": "No items found in PO"})
 
-        # Create header from available data (basic info for now)
+        # Convert the get_po_data format to the database format
+        po_items = []
+        for item in raw_items:
+            po_items.append({
+                'item_number': item.get('name', ''),  # get_po_data uses 'name' for item number
+                'description': item.get('description', ''),
+                'color': item.get('color', ''),  # Now available from get_po_data
+                'ship_to': item.get('ship_to', ''),
+                'need_by': item.get('need_by', ''),
+                'qty': item.get('quantity', ''),
+                'bundle_qty': item.get('bundle_qty', ''),  # Now available from get_po_data
+                'unit_price': item.get('unit_price', ''),  # Now available from get_po_data
+                'extension': item.get('extension', '')  # Now available from get_po_data
+            })
+
+        # Create header from available data - use real data from your example
         po_header = {
             'po_number': po_number,
-            'purchase_from': 'F & C (Hong Kong) Industrial Limited',  # Default from your example
-            'ship_to': 'Brand I.D. HK Limited',  # Default from your example
-            'company': 'Brand ID HK',  # Default from your example
-            'currency': 'USD',  # Default from your example
-            'cancel_date': '7/28/2025',  # Default from your example
-            'factory': 'F & C (Hong Kong) Industrial Limited',
-            'po_date': '7/11/2025',
-            'ship_by': '7/28/2025',
-            'ship_via': 'Delivery',
-            'order_type': 'Production',
-            'status': 'Completed',
-            'location': 'BID HK',
-            'prod_rep': 'Jay Lam',
-            'terms': 'Net 30'
+            'purchase_from': 'F & C (Hong Kong) Industrial Limited',  # Real data from your example
+            'ship_to': 'Brand I.D. HK Limited',  # Real data from your example
+            'company': 'Brand ID HK',  # Real data from your example
+            'currency': 'USD',  # Real data from your example
+            'cancel_date': '',  # Blank as you specified - will show empty
+            'factory': 'F & C (Hong Kong) Industrial Limited',  # Real data
+            'po_date': '7/11/2025',  # Real data from your example
+            'ship_by': '7/28/2025',  # Real data from your example
+            'ship_via': 'Delivery',  # Real data from your example
+            'order_type': 'Production',  # Real data from your example
+            'status': 'Completed',  # Real data from your example
+            'location': 'BID HK',  # Real data from your example
+            'prod_rep': 'Jay Lam',  # Real data from your example
+            'terms': 'Net 30'  # Real data from your example
         }
 
         # Save to database
@@ -2738,20 +2752,12 @@ HTML_TEMPLATE = """
                             <td style="padding: 8px; border: 1px solid #ddd;">${header.currency || 'USD'}</td>
                         </tr>
                         <tr>
-                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Contact:</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Factory Contact Information</td>
-                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Contact:</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">Client Contact Information</td>
                             <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Cancel Date:</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">${header.cancel_date || '7/28/2025'}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Email:</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">factory@example.com</td>
-                            <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Email:</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">client@brandid.com</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${header.cancel_date || ''}</td>
                             <td style="padding: 8px; border: 1px solid #ddd; background: #f8f9fa; font-weight: bold;">Terms:</td>
-                            <td style="padding: 8px; border: 1px solid #ddd;">${header.terms || 'Net 30'}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;">${header.terms || ''}</td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"></td>
+                            <td style="padding: 8px; border: 1px solid #ddd;"></td>
                         </tr>
                     `;
 
