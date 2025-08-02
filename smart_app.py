@@ -1,22 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-Smart E-BrandID Downloader
+Artwork Downloader
 1. Input PO# first
 2. Show recommendations based on PO data
 3. Display data table in web interface
+4. Intelligent artwork download with multiple methods
 
-Version History:
-- v1.0.0: Initial smart interface with PO analysis
-- v1.1.0: Added 3-tab structure (Download/PO Management/Settings)
-- v1.2.0: Fixed folder structure (download_artwork/date/po_time)
-- v1.3.0: Improved table parsing with multi-strategy detection
-- v1.4.0: Added deduplication and better data validation
-- v1.5.0: Enhanced manual input with improved UI and auto-detection
+VERSION TRACKING:
+- Every code edit gets a version number
+- Version displayed in UI for transparency
+- Format: v1.0.0 (YYYY-MM-DD HH:MM)
 """
 
-# Version information
-VERSION = "3.1.0"
-VERSION_DATE = "2025-08-01"
+# Version tracking system
+VERSION = "1.1.0"
+VERSION_DATE = "2025-08-02 11:00"
+LAST_EDIT = "Added secure settings tab with admin password protection"
+
+
 
 from flask import Flask, render_template_string, request, jsonify
 import os
@@ -25,6 +26,14 @@ import time
 import requests
 import re
 from datetime import datetime
+
+def update_version(new_version, edit_description):
+    """Helper function to update version info - USE THIS FOR EVERY EDIT"""
+    global VERSION, VERSION_DATE, LAST_EDIT
+    VERSION = new_version
+    VERSION_DATE = datetime.now().strftime("%Y-%m-%d %H:%M")
+    LAST_EDIT = edit_description
+    print(f"📝 Version updated to {VERSION} - {edit_description}")
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -38,6 +47,14 @@ app = Flask(__name__)
 # Global variables
 po_data = {}
 download_status = {'active': False, 'progress': 0, 'log': []}
+
+# Configuration storage
+config = {
+    'login_url': 'https://app.e-brandid.com/login/login.aspx',
+    'username': 'sales10@fuchanghk.com',
+    'password': 'fc31051856',
+    'admin_password': '1234'
+}
 
 def analyze_po_and_recommend(po_number, item_count, item_names):
     """Analyze PO data and recommend best download method"""
@@ -108,12 +125,12 @@ def get_po_data(po_number):
     
     try:
         # Login
-        driver.get("https://app.e-brandid.com/login/login.aspx")
+        driver.get(config['login_url'])
         username_field = wait.until(EC.presence_of_element_located((By.ID, "txtUserName")))
         password_field = driver.find_element(By.ID, "txtPassword")
-        
-        username_field.send_keys("sales10@fuchanghk.com")
-        password_field.send_keys("fc31051856")
+
+        username_field.send_keys(config['username'])
+        password_field.send_keys(config['password'])
         
         login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
         login_button.click()
@@ -400,7 +417,7 @@ def get_po_data(po_number):
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE, version=VERSION, version_date=VERSION_DATE)
+    return render_template_string(HTML_TEMPLATE, version=VERSION, version_date=VERSION_DATE, last_edit=LAST_EDIT)
 
 @app.route('/api/analyze_po', methods=['POST'])
 def analyze_po():
@@ -448,13 +465,13 @@ def test_login():
 
     try:
         print("🔍 Testing login...")
-        driver.get("https://app.e-brandid.com/login/login.aspx")
+        driver.get(config['login_url'])
 
         username_field = wait.until(EC.presence_of_element_located((By.ID, "txtUserName")))
         password_field = driver.find_element(By.ID, "txtPassword")
 
-        username_field.send_keys("sales10@fuchanghk.com")
-        password_field.send_keys("fc31051856")
+        username_field.send_keys(config['username'])
+        password_field.send_keys(config['password'])
 
         login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
         login_button.click()
@@ -747,7 +764,7 @@ def download_guaranteed_complete(po_number, items, download_folder):
 
         # CRITICAL: Login first (same as working unified_downloader.py)
         download_status['log'].append("📝 Logging in to E-BrandID...")
-        driver.get("https://app.e-brandid.com/login/login.aspx")
+        driver.get(config['login_url'])
 
         # Login with credentials (same as unified_downloader.py)
         username_field = WebDriverWait(driver, 10).until(
@@ -755,8 +772,8 @@ def download_guaranteed_complete(po_number, items, download_folder):
         )
         password_field = driver.find_element(By.ID, "txtPassword")
 
-        username_field.send_keys("sales10@fuchanghk.com")
-        password_field.send_keys("fc31051856")
+        username_field.send_keys(config['username'])
+        password_field.send_keys(config['password'])
 
         login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
         login_button.click()
@@ -925,17 +942,15 @@ def get_status():
 
 @app.route('/api/version')
 def get_version():
+    """Get current version information"""
     return jsonify({
         'version': VERSION,
         'version_date': VERSION_DATE,
-        'features': [
-            'Smart PO analysis and recommendations',
-            'Multi-strategy table detection',
-            'Automatic deduplication',
-            'Date-based folder organization',
-            '3-tab interface structure'
-        ]
+        'last_edit': LAST_EDIT,
+        'timestamp': VERSION_DATE
     })
+
+
 
 @app.route('/api/open_folder')
 def open_folder():
@@ -956,13 +971,61 @@ def open_folder():
     except Exception as e:
         return jsonify({"success": False, "message": f"Error opening folder: {str(e)}"})
 
+@app.route('/api/settings/verify_admin', methods=['POST'])
+def verify_admin():
+    """Verify admin password"""
+    data = request.json
+    password = data.get('password', '')
+
+    if password == config['admin_password']:
+        return jsonify({"success": True, "message": "Admin access granted"})
+    else:
+        return jsonify({"success": False, "message": "Invalid admin password"})
+
+@app.route('/api/settings/get_config', methods=['POST'])
+def get_config():
+    """Get configuration (requires admin password)"""
+    data = request.json
+    password = data.get('password', '')
+
+    if password != config['admin_password']:
+        return jsonify({"success": False, "message": "Admin access required"})
+
+    return jsonify({
+        "success": True,
+        "config": {
+            "login_url": config['login_url'],
+            "username": config['username'],
+            "password": config['password']
+        }
+    })
+
+@app.route('/api/settings/update_config', methods=['POST'])
+def update_config():
+    """Update configuration (requires admin password)"""
+    data = request.json
+    password = data.get('admin_password', '')
+
+    if password != config['admin_password']:
+        return jsonify({"success": False, "message": "Admin access required"})
+
+    # Update configuration
+    if 'login_url' in data:
+        config['login_url'] = data['login_url']
+    if 'username' in data:
+        config['username'] = data['username']
+    if 'password' in data:
+        config['password'] = data['password']
+
+    return jsonify({"success": True, "message": "Configuration updated successfully"})
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-BrandID Downloader v3.0.1</title>
+    <title>Artwork Downloader</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -1292,16 +1355,12 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="header">
-        <h1>E-BrandID Downloader <span style="font-size: 0.7em; color: #ecf0f1;">v3.0.1</span></h1>
         <p>Download artwork files - Smart PO Analysis & Recommendations</p>
-        <p style="font-size: 0.9em; color: #bdc3c7;">Updated: 2025-07-31 | 4 Download Methods with Method Selection</p>
+        <p style="font-size: 0.9em; color: #bdc3c7;">Intelligent artwork download with multiple methods</p>
     </div>
 
     <div class="container">
-        <!-- Version Info -->
-        <div style="text-align: center; padding: 10px; background: #f9f9f9; border: 1px solid #e0e0e0; margin-bottom: 20px;">
-            <strong>Version 3.1.0</strong> - Released 2025-08-01 | Streamlined UI with Method 5 Default
-        </div>
+
 
         <!-- Tab Navigation -->
         <div class="tabs">
@@ -1537,17 +1596,63 @@ HTML_TEMPLATE = """
         <div id="settings" class="tab-content">
             <div class="step">
                 <h2><span class="step-number">⚙️</span>Settings & Configuration</h2>
-                <p>Future feature for system customization</p>
-                <div style="padding: 40px; text-align: center; color: #666;">
-                    <h3>Coming Soon</h3>
-                    <p>This feature will allow you to:</p>
-                    <ul style="text-align: left; max-width: 400px; margin: 20px auto; line-height: 1.8;">
-                        <li>Default download folder settings</li>
-                        <li>Browser and timeout preferences</li>
-                        <li>Login credential management</li>
-                        <li>UI theme and appearance</li>
-                        <li>Email notification settings</li>
-                    </ul>
+                <p>Manage system configuration and login credentials</p>
+
+                <!-- Login Credentials Section -->
+                <div style="margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">
+                    <h3>🔐 Login Credentials</h3>
+                    <div style="margin: 15px 0;">
+                        <strong>Login URL:</strong><br>
+                        <span id="display_url">https://app.e-brandid.com/login/login.aspx</span>
+                    </div>
+                    <div style="margin: 15px 0;">
+                        <strong>Username:</strong><br>
+                        <span id="display_username">sales10@fuchanghk.com</span>
+                    </div>
+                    <div style="margin: 15px 0;">
+                        <strong>Password:</strong><br>
+                        <span id="display_password">************</span>
+                    </div>
+
+                    <!-- Admin Access Section -->
+                    <div id="admin_section" style="margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
+                        <h4>🔑 Admin Access Required</h4>
+                        <p style="margin: 10px 0; color: #666;">Enter admin password to view/edit credentials:</p>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="password" id="admin_password" placeholder="Admin password"
+                                   style="padding: 8px; border: 1px solid #ddd; border-radius: 3px; flex: 1;">
+                            <button onclick="verifyAdmin()" style="padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                Unlock
+                            </button>
+                        </div>
+                        <div id="admin_message" style="margin-top: 10px; color: red;"></div>
+                    </div>
+
+                    <!-- Edit Form (Hidden by default) -->
+                    <div id="edit_form" style="display: none; margin-top: 20px; padding: 15px; background: #e8f5e8; border-radius: 5px;">
+                        <h4>✏️ Edit Configuration</h4>
+                        <div style="margin: 10px 0;">
+                            <label><strong>Login URL:</strong></label><br>
+                            <input type="text" id="edit_url" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 3px;">
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <label><strong>Username:</strong></label><br>
+                            <input type="text" id="edit_username" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 3px;">
+                        </div>
+                        <div style="margin: 10px 0;">
+                            <label><strong>Password:</strong></label><br>
+                            <input type="text" id="edit_password" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 3px;">
+                        </div>
+                        <div style="margin: 15px 0;">
+                            <button onclick="saveConfig()" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer; margin-right: 10px;">
+                                💾 Save Changes
+                            </button>
+                            <button onclick="cancelEdit()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                                ❌ Cancel
+                            </button>
+                        </div>
+                        <div id="save_message" style="margin-top: 10px;"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1909,6 +2014,118 @@ HTML_TEMPLATE = """
             }
         }
 
+        // Settings functions
+        async function verifyAdmin() {
+            const password = document.getElementById('admin_password').value;
+            const messageDiv = document.getElementById('admin_message');
+
+            if (!password) {
+                messageDiv.textContent = 'Please enter admin password';
+                messageDiv.style.color = 'red';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/settings/verify_admin', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({password: password})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    messageDiv.textContent = '✅ Admin access granted';
+                    messageDiv.style.color = 'green';
+
+                    // Load and show configuration
+                    await loadConfiguration(password);
+                } else {
+                    messageDiv.textContent = '❌ Invalid admin password';
+                    messageDiv.style.color = 'red';
+                }
+            } catch (error) {
+                messageDiv.textContent = '❌ Error: ' + error.message;
+                messageDiv.style.color = 'red';
+            }
+        }
+
+        async function loadConfiguration(password) {
+            try {
+                const response = await fetch('/api/settings/get_config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({password: password})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Show actual values
+                    document.getElementById('display_url').textContent = result.config.login_url;
+                    document.getElementById('display_username').textContent = result.config.username;
+                    document.getElementById('display_password').textContent = result.config.password;
+
+                    // Populate edit form
+                    document.getElementById('edit_url').value = result.config.login_url;
+                    document.getElementById('edit_username').value = result.config.username;
+                    document.getElementById('edit_password').value = result.config.password;
+
+                    // Show edit form
+                    document.getElementById('edit_form').style.display = 'block';
+                    document.getElementById('admin_section').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error loading configuration:', error);
+            }
+        }
+
+        async function saveConfig() {
+            const adminPassword = document.getElementById('admin_password').value;
+            const url = document.getElementById('edit_url').value;
+            const username = document.getElementById('edit_username').value;
+            const password = document.getElementById('edit_password').value;
+            const messageDiv = document.getElementById('save_message');
+
+            try {
+                const response = await fetch('/api/settings/update_config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        admin_password: adminPassword,
+                        login_url: url,
+                        username: username,
+                        password: password
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    messageDiv.innerHTML = '<span style="color: green;">✅ Configuration saved successfully!</span>';
+
+                    // Update display
+                    document.getElementById('display_url').textContent = url;
+                    document.getElementById('display_username').textContent = username;
+                    document.getElementById('display_password').textContent = password;
+                } else {
+                    messageDiv.innerHTML = '<span style="color: red;">❌ ' + result.message + '</span>';
+                }
+            } catch (error) {
+                messageDiv.innerHTML = '<span style="color: red;">❌ Error: ' + error.message + '</span>';
+            }
+        }
+
+        function cancelEdit() {
+            document.getElementById('edit_form').style.display = 'none';
+            document.getElementById('admin_section').style.display = 'block';
+            document.getElementById('admin_password').value = '';
+            document.getElementById('admin_message').textContent = '';
+
+            // Reset display to masked values
+            document.getElementById('display_password').textContent = '************';
+        }
+
         function toggleMethodSelection() {
             const defaultDisplay = document.querySelector('.default-method-display');
             const allMethods = document.getElementById('all_methods');
@@ -1947,13 +2164,18 @@ HTML_TEMPLATE = """
 
 
     </script>
+
+    <!-- Version Footer -->
+    <div style="position: fixed; bottom: 10px; right: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px 10px; border-radius: 5px; font-size: 11px; font-family: monospace;">
+        v{{ version }} | {{ version_date }} | {{ last_edit }}
+    </div>
+
 </body>
 </html>
 """
 
 if __name__ == '__main__':
-    print("🚀 Starting Smart E-BrandID Downloader...")
-    print(f"📋 Version: {VERSION} ({VERSION_DATE})")
+    print("🚀 Starting artwork downloader...")
     print("📱 Open your browser and go to: http://localhost:5001")
     print("🛑 Press Ctrl+C to stop the server")
     

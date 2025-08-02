@@ -1,9 +1,9 @@
 @echo off
-title Smart E-BrandID Downloader - Starting...
+title Artwork Downloader - Starting...
 
 echo.
 echo ========================================
-echo   Smart E-BrandID Downloader v3.1.0
+echo   Artwork Downloader
 echo ========================================
 echo.
 echo Starting the web application...

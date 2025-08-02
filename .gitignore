@@ -1,4 +1,7 @@
-﻿# PDF Files (Downloaded content)
+﻿# Smart BrandID Downloader - Git Ignore Rules
+# DEVELOPMENT RULE: Never commit user data or sensitive files
+
+# PDF Files (Downloaded content)
 *.pdf
 
 # Download Folders (Central download folder)
