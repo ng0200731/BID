@@ -1,12 +1,76 @@
 # Version Tracking System
 
-## 🔢 **Current Version: v1.1.0**
-**Last Updated**: 2025-08-02 11:00
-**Last Edit**: Added secure settings tab with admin password protection
+## 🔢 **Current Version: v1.2.2**
+**Last Updated**: 2025-08-02 11:20
+**Last Edit**: Added cache-busting headers to prevent browser caching issues
 
 ---
 
 ## 📋 **Version History**
+
+### v1.2.2 (2025-08-02 11:20)
+- **Change**: Added cache-busting headers to prevent browser caching issues
+- **Files Modified**: smart_app.py
+- **Description**: Implemented permanent solution for browser caching problems
+- **Cache-Busting Features**:
+  - Added HTTP headers: `Cache-Control: no-cache, no-store, must-revalidate`
+  - Added `Pragma: no-cache` and `Expires: 0` headers
+  - Added meta tags in HTML head for cache control
+  - Version number now appears in browser title tab
+- **Problem Solved**: Browser will no longer cache old versions
+- **User Experience**: Version updates will be immediately visible without manual cache clearing
+
+### v1.2.1 (2025-08-02 11:15)
+- **Change**: Fixed PO scraping with improved Chrome setup and table extraction
+- **Files Modified**: smart_app.py
+- **Description**: Resolved PO database scraping issues that were causing extraction failures
+- **Fixes Applied**:
+  - Updated Chrome driver setup to match working download functions
+  - Improved login method using correct XPATH selector
+  - Enhanced table extraction with better debugging and error handling
+  - Added wait conditions for page loading
+  - More robust item detection logic
+  - Better error messages and logging for troubleshooting
+- **Chrome Setup**: Now uses same configuration as successful download functions
+- **Table Extraction**: Improved algorithm to find and parse item data tables
+- **Error Handling**: Better debugging output to identify extraction issues
+
+### v1.2.0 (2025-08-02 11:10)
+- **Change**: Added complete PO database system with header and items storage
+- **Files Modified**: smart_app.py
+- **Description**: Implemented comprehensive PO database system for storing complete PO details
+- **Database Structure**:
+  - SQLite database: `po_database.db` in project folder
+  - Table 1: `po_headers` (PO master info: purchase_from, ship_to, company, currency, cancel_date)
+  - Table 2: `po_items` (all item details: item#, description, color, ship_to, need_by, qty, bundle_qty, unit_price, extension)
+- **Features Added**:
+  - `init_database()` - Initialize SQLite database with proper schema
+  - `scrape_po_details()` - Extract complete PO data from factoryPODetail.aspx page
+  - `save_po_to_database()` - Save header and all items to database
+  - `check_po_exists()` - Check for duplicate PO numbers
+  - Prompt dialogs for save confirmation and overwrite handling
+  - API endpoints: `/api/po/check_exists`, `/api/po/save_details`
+  - Integration with download workflow - prompts user before download starts
+- **User Experience**:
+  - After PO analysis, user clicks "Start Download"
+  - System prompts: "Save PO details to database?" [Yes/No]
+  - If PO exists: "PO already exists. Overwrite?" [Yes/No]
+  - Complete PO data saved for future delivery date updates
+- **Data Captured**: Everything from PO detail page for comprehensive record keeping
+
+### v1.1.1 (2025-08-02 11:05)
+- **Change**: Added email masking for username display in settings
+- **Files Modified**: smart_app.py
+- **Description**: Implemented email masking to enhance security in settings display
+- **Masking Rules**:
+  - Prefix (before @): Show first 2 characters, rest as asterisks
+  - Suffix (after @): Show first 1 character, rest as asterisks
+  - Example: `sales10@fuchanghk.com` → `sa****@f*********`
+- **Features Added**:
+  - `mask_email()` function for server-side masking
+  - JavaScript `maskEmail()` function for client-side masking
+  - Template integration with masked username display
+  - Proper masking in cancel/reset operations
 
 ### v1.1.0 (2025-08-02 11:00)
 - **Change**: Added secure settings tab with admin password protection

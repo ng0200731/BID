@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.1.0"
-VERSION_DATE = "2025-08-02 11:00"
-LAST_EDIT = "Added secure settings tab with admin password protection"
+VERSION = "1.2.2"
+VERSION_DATE = "2025-08-02 11:20"
+LAST_EDIT = "Added cache-busting headers to prevent browser caching issues"
 
 
 
@@ -25,6 +25,7 @@ import threading
 import time
 import requests
 import re
+import sqlite3
 from datetime import datetime
 
 def update_version(new_version, edit_description):
@@ -34,6 +35,119 @@ def update_version(new_version, edit_description):
     VERSION_DATE = datetime.now().strftime("%Y-%m-%d %H:%M")
     LAST_EDIT = edit_description
     print(f"📝 Version updated to {VERSION} - {edit_description}")
+
+def mask_email(email):
+    """Mask email address: prefix shows first 2 chars, suffix shows first 1 char"""
+    if '@' not in email:
+        return email
+
+    prefix, suffix = email.split('@', 1)
+
+    # Mask prefix: show first 2 characters, rest as asterisks
+    if len(prefix) <= 2:
+        masked_prefix = prefix
+    else:
+        masked_prefix = prefix[:2] + '*' * (len(prefix) - 2)
+
+    # Mask suffix: show first 1 character, rest as asterisks
+    if len(suffix) <= 1:
+        masked_suffix = suffix
+    else:
+        masked_suffix = suffix[:1] + '*' * (len(suffix) - 1)
+
+    return f"{masked_prefix}@{masked_suffix}"
+
+# Database functions
+def init_database():
+    """Initialize SQLite database for PO storage"""
+    conn = sqlite3.connect('po_database.db')
+    cursor = conn.cursor()
+
+    # Create PO headers table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS po_headers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            po_number TEXT UNIQUE,
+            purchase_from TEXT,
+            ship_to TEXT,
+            company TEXT,
+            currency TEXT,
+            cancel_date TEXT,
+            created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Create PO items table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS po_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            po_number TEXT,
+            item_number TEXT,
+            description TEXT,
+            color TEXT,
+            ship_to TEXT,
+            need_by TEXT,
+            qty TEXT,
+            bundle_qty TEXT,
+            unit_price TEXT,
+            extension TEXT,
+            created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (po_number) REFERENCES po_headers(po_number)
+        )
+    ''')
+
+    conn.commit()
+    conn.close()
+    print("📊 Database initialized successfully")
+
+def check_po_exists(po_number):
+    """Check if PO already exists in database"""
+    conn = sqlite3.connect('po_database.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM po_headers WHERE po_number = ?', (po_number,))
+    exists = cursor.fetchone()[0] > 0
+    conn.close()
+    return exists
+
+def save_po_to_database(po_number, po_header, po_items, overwrite=False):
+    """Save complete PO data to database"""
+    conn = sqlite3.connect('po_database.db')
+    cursor = conn.cursor()
+
+    try:
+        if overwrite:
+            # Delete existing records
+            cursor.execute('DELETE FROM po_items WHERE po_number = ?', (po_number,))
+            cursor.execute('DELETE FROM po_headers WHERE po_number = ?', (po_number,))
+
+        # Insert PO header
+        cursor.execute('''
+            INSERT INTO po_headers (po_number, purchase_from, ship_to, company, currency, cancel_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (po_number, po_header.get('purchase_from', ''), po_header.get('ship_to', ''),
+              po_header.get('company', ''), po_header.get('currency', ''), po_header.get('cancel_date', '')))
+
+        # Insert PO items
+        for item in po_items:
+            cursor.execute('''
+                INSERT INTO po_items (po_number, item_number, description, color, ship_to, need_by, qty, bundle_qty, unit_price, extension)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (po_number, item.get('item_number', ''), item.get('description', ''), item.get('color', ''),
+                  item.get('ship_to', ''), item.get('need_by', ''), item.get('qty', ''),
+                  item.get('bundle_qty', ''), item.get('unit_price', ''), item.get('extension', '')))
+
+        conn.commit()
+        print(f"📊 PO {po_number} saved to database successfully")
+        return True
+
+    except Exception as e:
+        conn.rollback()
+        print(f"❌ Error saving PO to database: {e}")
+        return False
+    finally:
+        conn.close()
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -41,6 +155,148 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+
+def scrape_po_details(po_number):
+    """Scrape complete PO details from factoryPODetail.aspx page"""
+    driver = None
+    try:
+        # Setup Chrome driver (same as working download functions)
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-images")
+
+        driver_path = ChromeDriverManager().install()
+        service = Service(driver_path)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        wait = WebDriverWait(driver, 15)
+
+        print(f"🔍 Scraping PO details for {po_number}...")
+
+        # Login first (same as working functions)
+        driver.get(config['login_url'])
+        username_field = wait.until(EC.presence_of_element_located((By.ID, "txtUserName")))
+        password_field = driver.find_element(By.ID, "txtPassword")
+
+        username_field.send_keys(config['username'])
+        password_field.send_keys(config['password'])
+
+        # Use the same login method as working functions
+        login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
+        login_button.click()
+        wait.until(lambda d: "login" not in d.current_url.lower())
+
+        print(f"✅ Login successful for PO scraping")
+
+        # Navigate to PO detail page
+        po_url = f"https://app.e-brandid.com/Bidnet/bidnet3/factoryPODetail.aspx?po_id={po_number}"
+        driver.get(po_url)
+        time.sleep(5)  # Give more time for page to load
+
+        print(f"📄 Loaded PO detail page: {po_url}")
+
+        # Extract PO header information
+        po_header = {}
+
+        # Try to find header information (adjust selectors based on actual page structure)
+        try:
+            # Look for common header fields - these may need adjustment based on actual page
+            page_text = driver.page_source
+
+            # Extract basic info that's usually visible
+            po_header['purchase_from'] = extract_field_value(page_text, ['Purchase From', 'Vendor', 'Supplier'])
+            po_header['ship_to'] = extract_field_value(page_text, ['Ship To', 'Shipping Address'])
+            po_header['company'] = extract_field_value(page_text, ['Company', 'Client'])
+            po_header['currency'] = extract_field_value(page_text, ['Currency', 'Curr'])
+            po_header['cancel_date'] = extract_field_value(page_text, ['Cancel Date', 'Deadline', 'Due Date'])
+
+        except Exception as e:
+            print(f"⚠️ Could not extract header info: {e}")
+
+        # Extract items table
+        po_items = []
+
+        try:
+            print(f"🔍 Looking for data tables on PO page...")
+
+            # Wait for page content to load
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
+
+            # Find all tables
+            tables = driver.find_elements(By.TAG_NAME, "table")
+            print(f"📊 Found {len(tables)} tables on page")
+
+            # Try to find the table with item data (similar to how get_po_data works)
+            for table_idx, table in enumerate(tables):
+                try:
+                    rows = table.find_elements(By.TAG_NAME, "tr")
+                    print(f"📋 Table {table_idx + 1}: {len(rows)} rows")
+
+                    if len(rows) < 2:  # Skip tables with no data rows
+                        continue
+
+                    # Look for data rows (skip header)
+                    for row_idx, row in enumerate(rows[1:], 1):  # Skip first row (header)
+                        cells = row.find_elements(By.TAG_NAME, "td")
+
+                        if len(cells) >= 8:  # Should have at least 8 columns for item data
+                            cell_texts = [cell.text.strip() for cell in cells]
+
+                            # Check if this looks like an item row (first cell should be item number)
+                            if cell_texts[0] and len(cell_texts[0]) > 3 and not cell_texts[0].lower().startswith('item'):
+                                item = {
+                                    'item_number': cell_texts[0] if len(cell_texts) > 0 else '',
+                                    'description': cell_texts[1] if len(cell_texts) > 1 else '',
+                                    'color': cell_texts[2] if len(cell_texts) > 2 else '',
+                                    'ship_to': cell_texts[3] if len(cell_texts) > 3 else '',
+                                    'need_by': cell_texts[4] if len(cell_texts) > 4 else '',
+                                    'qty': cell_texts[5] if len(cell_texts) > 5 else '',
+                                    'bundle_qty': cell_texts[6] if len(cell_texts) > 6 else '',
+                                    'unit_price': cell_texts[7] if len(cell_texts) > 7 else '',
+                                    'extension': cell_texts[8] if len(cell_texts) > 8 else ''
+                                }
+                                po_items.append(item)
+                                print(f"✅ Found item: {item['item_number']} - {item['description'][:30]}...")
+
+                    if po_items:  # Found items in this table
+                        print(f"🎯 Successfully extracted {len(po_items)} items from table {table_idx + 1}")
+                        break
+
+                except Exception as table_error:
+                    print(f"⚠️ Error processing table {table_idx + 1}: {table_error}")
+                    continue
+
+        except Exception as e:
+            print(f"⚠️ Could not extract items table: {e}")
+
+        print(f"✅ Scraped {len(po_items)} items for PO {po_number}")
+        return po_header, po_items
+
+    except Exception as e:
+        print(f"❌ Error scraping PO details: {e}")
+        return {}, []
+    finally:
+        if driver:
+            driver.quit()
+
+def extract_field_value(page_text, field_names):
+    """Extract field value from page text using multiple possible field names"""
+    for field_name in field_names:
+        # Look for patterns like "Field Name: Value" or "Field Name Value"
+        patterns = [
+            rf'{field_name}[:\s]+([^\n\r<>]+)',
+            rf'<[^>]*>{field_name}[:\s]*</[^>]*>\s*<[^>]*>([^<]+)',
+            rf'{field_name}[:\s]*([A-Za-z0-9\s\.,@-]+)'
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, page_text, re.IGNORECASE)
+            if match:
+                value = match.group(1).strip()
+                if value and len(value) > 1:
+                    return value
+    return ''
 
 app = Flask(__name__)
 
@@ -417,7 +673,16 @@ def get_po_data(po_number):
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE, version=VERSION, version_date=VERSION_DATE, last_edit=LAST_EDIT)
+    masked_username = mask_email(config['username'])
+    response = app.response_class(
+        render_template_string(HTML_TEMPLATE, version=VERSION, version_date=VERSION_DATE, last_edit=LAST_EDIT, masked_username=masked_username),
+        mimetype='text/html'
+    )
+    # Add cache-busting headers
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/api/analyze_po', methods=['POST'])
 def analyze_po():
@@ -1019,13 +1284,61 @@ def update_config():
 
     return jsonify({"success": True, "message": "Configuration updated successfully"})
 
+@app.route('/api/po/check_exists', methods=['POST'])
+def check_po_exists_api():
+    """Check if PO exists in database"""
+    data = request.json
+    po_number = data.get('po_number', '')
+
+    if not po_number:
+        return jsonify({"success": False, "message": "PO number required"})
+
+    exists = check_po_exists(po_number)
+    return jsonify({"success": True, "exists": exists, "po_number": po_number})
+
+@app.route('/api/po/save_details', methods=['POST'])
+def save_po_details_api():
+    """Save PO details to database"""
+    data = request.json
+    po_number = data.get('po_number', '')
+    overwrite = data.get('overwrite', False)
+
+    if not po_number:
+        return jsonify({"success": False, "message": "PO number required"})
+
+    try:
+        # Scrape PO details
+        po_header, po_items = scrape_po_details(po_number)
+
+        if not po_items:
+            return jsonify({"success": False, "message": "Could not extract PO details from website"})
+
+        # Save to database
+        success = save_po_to_database(po_number, po_header, po_items, overwrite)
+
+        if success:
+            return jsonify({
+                "success": True,
+                "message": f"PO {po_number} saved successfully",
+                "header_count": 1,
+                "items_count": len(po_items)
+            })
+        else:
+            return jsonify({"success": False, "message": "Failed to save PO to database"})
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error processing PO: {str(e)}"})
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Artwork Downloader</title>
+    <title>Artwork Downloader v{{ version }}</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -1607,7 +1920,7 @@ HTML_TEMPLATE = """
                     </div>
                     <div style="margin: 15px 0;">
                         <strong>Username:</strong><br>
-                        <span id="display_username">sales10@fuchanghk.com</span>
+                        <span id="display_username">{{ masked_username }}</span>
                     </div>
                     <div style="margin: 15px 0;">
                         <strong>Password:</strong><br>
@@ -1871,12 +2184,21 @@ HTML_TEMPLATE = """
                 return;
             }
 
+            // 🆕 PROMPT FOR PO DATABASE SAVE
+            const savePODetails = await promptSavePODetails(currentPO.po_number);
+
             const button = document.getElementById('download_btn');
             button.disabled = true;
             button.innerHTML = `⏳ Starting Download (${selectedItems.length} items)...`;
             document.getElementById('progress_step').classList.remove('hidden');
 
             try {
+                // Save PO details to database if user chose to
+                if (savePODetails) {
+                    await savePOToDatabase(currentPO.po_number);
+                }
+
+                // Start the actual download
                 await fetch('/api/start_download', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2014,6 +2336,21 @@ HTML_TEMPLATE = """
             }
         }
 
+        // Email masking function
+        function maskEmail(email) {
+            if (!email.includes('@')) return email;
+
+            const [prefix, suffix] = email.split('@');
+
+            // Mask prefix: show first 2 characters, rest as asterisks
+            const maskedPrefix = prefix.length <= 2 ? prefix : prefix.substring(0, 2) + '*'.repeat(prefix.length - 2);
+
+            // Mask suffix: show first 1 character, rest as asterisks
+            const maskedSuffix = suffix.length <= 1 ? suffix : suffix.substring(0, 1) + '*'.repeat(suffix.length - 1);
+
+            return `${maskedPrefix}@${maskedSuffix}`;
+        }
+
         // Settings functions
         async function verifyAdmin() {
             const password = document.getElementById('admin_password').value;
@@ -2123,7 +2460,139 @@ HTML_TEMPLATE = """
             document.getElementById('admin_message').textContent = '';
 
             // Reset display to masked values
+            const currentUsername = document.getElementById('edit_username').value || '{{ masked_username }}';
+            document.getElementById('display_username').textContent = maskEmail(currentUsername);
             document.getElementById('display_password').textContent = '************';
+        }
+
+        // PO Database functions
+        async function promptSavePODetails(poNumber) {
+            return new Promise((resolve) => {
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.5); z-index: 10000; display: flex;
+                    align-items: center; justify-content: center;
+                `;
+
+                modal.innerHTML = `
+                    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; text-align: center;">
+                        <h3>📊 Save PO Details to Database?</h3>
+                        <p>Do you want to save complete PO details for <strong>${poNumber}</strong> to the database?</p>
+                        <p style="font-size: 0.9em; color: #666;">This will save all item details, company info, and dates for future reference.</p>
+                        <div style="margin-top: 20px;">
+                            <button id="saveYes" style="padding: 10px 20px; margin: 0 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                ✅ Yes, Save Details
+                            </button>
+                            <button id="saveNo" style="padding: 10px 20px; margin: 0 10px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                ❌ No, Skip
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                document.body.appendChild(modal);
+
+                document.getElementById('saveYes').onclick = () => {
+                    document.body.removeChild(modal);
+                    resolve(true);
+                };
+
+                document.getElementById('saveNo').onclick = () => {
+                    document.body.removeChild(modal);
+                    resolve(false);
+                };
+            });
+        }
+
+        async function promptOverwritePO(poNumber) {
+            return new Promise((resolve) => {
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.5); z-index: 10000; display: flex;
+                    align-items: center; justify-content: center;
+                `;
+
+                modal.innerHTML = `
+                    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; text-align: center;">
+                        <h3>⚠️ PO Already Exists</h3>
+                        <p>PO <strong>${poNumber}</strong> already exists in the database.</p>
+                        <p style="font-size: 0.9em; color: #666;">Do you want to overwrite the existing data?</p>
+                        <div style="margin-top: 20px;">
+                            <button id="overwriteYes" style="padding: 10px 20px; margin: 0 10px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                🔄 Yes, Overwrite
+                            </button>
+                            <button id="overwriteNo" style="padding: 10px 20px; margin: 0 10px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                ❌ No, Skip
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                document.body.appendChild(modal);
+
+                document.getElementById('overwriteYes').onclick = () => {
+                    document.body.removeChild(modal);
+                    resolve(true);
+                };
+
+                document.getElementById('overwriteNo').onclick = () => {
+                    document.body.removeChild(modal);
+                    resolve(false);
+                };
+            });
+        }
+
+        async function savePOToDatabase(poNumber) {
+            try {
+                // First check if PO exists
+                const checkResponse = await fetch('/api/po/check_exists', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({po_number: poNumber})
+                });
+
+                const checkResult = await checkResponse.json();
+
+                if (!checkResult.success) {
+                    showError('❌ Error checking PO existence: ' + checkResult.message, 'error');
+                    return false;
+                }
+
+                let overwrite = false;
+                if (checkResult.exists) {
+                    overwrite = await promptOverwritePO(poNumber);
+                    if (!overwrite) {
+                        showError('📊 PO database save skipped', 'info');
+                        return false;
+                    }
+                }
+
+                // Show loading message
+                showError('📊 Saving PO details to database...', 'info');
+
+                // Save PO details
+                const saveResponse = await fetch('/api/po/save_details', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({po_number: poNumber, overwrite: overwrite})
+                });
+
+                const saveResult = await saveResponse.json();
+
+                if (saveResult.success) {
+                    showError(`✅ PO ${poNumber} saved to database (${saveResult.items_count} items)`, 'success');
+                    return true;
+                } else {
+                    showError('❌ Failed to save PO: ' + saveResult.message, 'error');
+                    return false;
+                }
+
+            } catch (error) {
+                showError('❌ Error saving PO to database: ' + error.message, 'error');
+                return false;
+            }
         }
 
         function toggleMethodSelection() {
@@ -2176,7 +2645,9 @@ HTML_TEMPLATE = """
 
 if __name__ == '__main__':
     print("🚀 Starting artwork downloader...")
+    print("📊 Initializing PO database...")
+    init_database()
     print("📱 Open your browser and go to: http://localhost:5001")
     print("🛑 Press Ctrl+C to stop the server")
-    
+
     app.run(debug=False, host='127.0.0.1', port=5001)
