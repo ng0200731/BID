@@ -16,5 +16,9 @@ pillow==11.3.0
 # Build tools (optional - for creating executable)
 pyinstaller==6.2.0
 
+# Data processing and Excel export
+pandas==2.2.2
+openpyxl==3.1.5
+
 # Additional utilities
 urllib3==2.5.0

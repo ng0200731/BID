@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.6.3"
-VERSION_DATE = "2025-08-02 13:30"
-LAST_EDIT = "Added real-time PO number search function to Saved PO Database table"
+VERSION = "1.7.0"
+VERSION_DATE = "2025-08-03 14:00"
+LAST_EDIT = "Added comprehensive Report tab with 27-column master data view"
 
 
 
@@ -284,6 +284,149 @@ def save_po_to_database(po_number, po_header, po_items, overwrite=False):
         conn.rollback()
         print(f"❌ Error saving PO to database: {e}")
         return False
+    finally:
+        conn.close()
+
+def get_master_report_data(limit=20, search_filters=None):
+    """Get master report data combining PO headers and items with search functionality"""
+    conn = sqlite3.connect('po_database.db')
+    cursor = conn.cursor()
+
+    try:
+        # Base query joining headers and items
+        base_query = '''
+            SELECT
+                h.po_number,
+                i.item_number,
+                i.description,
+                i.color,
+                i.ship_to,
+                i.need_by,
+                i.qty,
+                i.bundle_qty,
+                i.unit_price,
+                i.extension,
+                h.company,
+                h.purchase_from,
+                h.currency,
+                h.po_date,
+                h.cancel_date,
+                h.ship_by,
+                h.ship_via,
+                h.order_type,
+                h.status,
+                h.factory,
+                h.location,
+                h.prod_rep,
+                h.ship_to_address,
+                h.terms,
+                h.first_created,
+                h.last_updated,
+                h.update_count
+            FROM po_headers h
+            LEFT JOIN po_items i ON h.po_number = i.po_number
+        '''
+
+        # Build WHERE clause for search filters
+        where_conditions = []
+        params = []
+
+        if search_filters:
+            for column, value in search_filters.items():
+                if value and value.strip():
+                    # Map frontend column names to database columns
+                    column_mapping = {
+                        'po_number': 'h.po_number',
+                        'item_number': 'i.item_number',
+                        'description': 'i.description',
+                        'color': 'i.color',
+                        'ship_to': 'i.ship_to',
+                        'need_by': 'i.need_by',
+                        'qty': 'i.qty',
+                        'bundle_qty': 'i.bundle_qty',
+                        'unit_price': 'i.unit_price',
+                        'extension': 'i.extension',
+                        'company': 'h.company',
+                        'purchase_from': 'h.purchase_from',
+                        'currency': 'h.currency',
+                        'po_date': 'h.po_date',
+                        'cancel_date': 'h.cancel_date',
+                        'ship_by': 'h.ship_by',
+                        'ship_via': 'h.ship_via',
+                        'order_type': 'h.order_type',
+                        'status': 'h.status',
+                        'factory': 'h.factory',
+                        'location': 'h.location',
+                        'prod_rep': 'h.prod_rep',
+                        'ship_to_address': 'h.ship_to_address',
+                        'terms': 'h.terms',
+                        'first_created': 'h.first_created',
+                        'last_updated': 'h.last_updated',
+                        'update_count': 'h.update_count'
+                    }
+
+                    db_column = column_mapping.get(column)
+                    if db_column:
+                        where_conditions.append(f"{db_column} LIKE ?")
+                        params.append(f"%{value.strip()}%")
+
+        # Construct final query
+        if where_conditions:
+            query = base_query + " WHERE " + " AND ".join(where_conditions)
+        else:
+            query = base_query
+
+        # Add ordering and limit
+        query += " ORDER BY h.created_date DESC, i.id ASC"
+        if limit:
+            query += f" LIMIT {limit}"
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        # Get column names
+        columns = [
+            'po_number', 'item_number', 'description', 'color', 'ship_to', 'need_by',
+            'qty', 'bundle_qty', 'unit_price', 'extension', 'company', 'purchase_from',
+            'currency', 'po_date', 'cancel_date', 'ship_by', 'ship_via', 'order_type',
+            'status', 'factory', 'location', 'prod_rep', 'ship_to_address', 'terms',
+            'first_created', 'last_updated', 'update_count'
+        ]
+
+        # Convert to list of dictionaries
+        data = []
+        for row in rows:
+            record = {}
+            for i, column in enumerate(columns):
+                record[column] = row[i] if row[i] is not None else ''
+            data.append(record)
+
+        # Get total count for pagination info
+        count_query = "SELECT COUNT(*) FROM po_headers h LEFT JOIN po_items i ON h.po_number = i.po_number"
+        if where_conditions:
+            count_query += " WHERE " + " AND ".join(where_conditions)
+
+        cursor.execute(count_query, params)
+        total_count = cursor.fetchone()[0]
+
+        return {
+            'success': True,
+            'data': data,
+            'total_count': total_count,
+            'filtered_count': len(data),
+            'columns': columns
+        }
+
+    except Exception as e:
+        print(f"❌ Error getting master report data: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'data': [],
+            'total_count': 0,
+            'filtered_count': 0,
+            'columns': []
+        }
     finally:
         conn.close()
 
@@ -976,6 +1119,133 @@ def test_data(po_number):
         'success': result.get('success', False),
         'error': result.get('error', None)
     })
+
+@app.route('/api/master_report')
+def master_report():
+    """Get master report data with search and pagination"""
+    # Get query parameters
+    limit = request.args.get('limit', 20, type=int)
+    search_filters = {}
+
+    # Extract search filters from query parameters
+    filter_columns = [
+        'po_number', 'item_number', 'description', 'color', 'ship_to', 'need_by',
+        'qty', 'bundle_qty', 'unit_price', 'extension', 'company', 'purchase_from',
+        'currency', 'po_date', 'cancel_date', 'ship_by', 'ship_via', 'order_type',
+        'status', 'factory', 'location', 'prod_rep', 'ship_to_address', 'terms',
+        'first_created', 'last_updated', 'update_count'
+    ]
+
+    for column in filter_columns:
+        value = request.args.get(f'search_{column}')
+        if value:
+            search_filters[column] = value
+
+    # Get data
+    result = get_master_report_data(limit=limit, search_filters=search_filters)
+    return jsonify(result)
+
+@app.route('/api/export_master_report')
+def export_master_report():
+    """Export master report data to Excel"""
+    import io
+    import pandas as pd
+    from flask import send_file
+
+    # Get search filters from query parameters
+    search_filters = {}
+    filter_columns = [
+        'po_number', 'item_number', 'description', 'color', 'ship_to', 'need_by',
+        'qty', 'bundle_qty', 'unit_price', 'extension', 'company', 'purchase_from',
+        'currency', 'po_date', 'cancel_date', 'ship_by', 'ship_via', 'order_type',
+        'status', 'factory', 'location', 'prod_rep', 'ship_to_address', 'terms',
+        'first_created', 'last_updated', 'update_count'
+    ]
+
+    for column in filter_columns:
+        value = request.args.get(f'search_{column}')
+        if value:
+            search_filters[column] = value
+
+    # Get all data (no limit for export)
+    result = get_master_report_data(limit=None, search_filters=search_filters)
+
+    if not result['success']:
+        return jsonify({'error': 'Failed to get report data'}), 500
+
+    try:
+        # Create DataFrame
+        df = pd.DataFrame(result['data'])
+
+        # Rename columns to be more user-friendly
+        column_names = {
+            'po_number': 'PO#',
+            'item_number': 'Item #',
+            'description': 'Description',
+            'color': 'Color',
+            'ship_to': 'Ship To',
+            'need_by': 'Need By',
+            'qty': 'Qty',
+            'bundle_qty': 'Bundle Qty',
+            'unit_price': 'Unit Price',
+            'extension': 'Extension',
+            'company': 'Company',
+            'purchase_from': 'Purchase From',
+            'currency': 'Currency',
+            'po_date': 'PO Date',
+            'cancel_date': 'Cancel Date',
+            'ship_by': 'Ship By',
+            'ship_via': 'Ship Via',
+            'order_type': 'Order Type',
+            'status': 'Status',
+            'factory': 'Factory',
+            'location': 'Location',
+            'prod_rep': 'Prod Rep',
+            'ship_to_address': 'Ship To Address',
+            'terms': 'Terms',
+            'first_created': 'First Created',
+            'last_updated': 'Last Updated',
+            'update_count': 'Update Count'
+        }
+
+        df = df.rename(columns=column_names)
+
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Master Report', index=False)
+
+            # Auto-adjust column widths
+            worksheet = writer.sheets['Master Report']
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)  # Cap at 50 characters
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+
+        output.seek(0)
+
+        # Generate filename with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'PO_Master_Report_{timestamp}.xlsx'
+
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        print(f"❌ Error creating Excel export: {e}")
+        return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
 @app.route('/api/start_download', methods=['POST'])
 def start_download():
@@ -2429,43 +2699,134 @@ HTML_TEMPLATE = """
         <!-- Report Tab -->
         <div id="report" class="tab-content">
             <div class="step">
-                <h2><span class="step-number">📊</span>Download Reports</h2>
+                <h2><span class="step-number">📊</span>PO Master Report</h2>
+                <p>Comprehensive view of all PO data with 27 columns combining headers and items</p>
 
-                <div class="report-section">
-                    <h3>Download History</h3>
-                    <div class="form-group">
-                        <label for="report_date_from">From Date:</label>
-                        <input type="date" id="report_date_from" />
+                <!-- Report Controls -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                    <div>
+                        <h3 style="margin: 0; color: #333;">📈 Master Data View</h3>
+                        <p style="margin: 5px 0 0 0; color: #666; font-size: 0.9em;">Latest 20 records | Real-time search across all 27 columns</p>
                     </div>
-                    <div class="form-group">
-                        <label for="report_date_to">To Date:</label>
-                        <input type="date" id="report_date_to" />
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn" onclick="refreshMasterReport()" style="background: #17a2b8;">🔄 Refresh</button>
+                        <button class="btn" onclick="exportMasterReport()" style="background: #28a745;">📥 Export Excel</button>
                     </div>
-                    <button class="btn" onclick="generateReport()">Generate Report</button>
                 </div>
 
-                <div id="report_results" class="hidden">
-                    <h3>Report Results</h3>
-                    <div id="report_table_container"></div>
-                    <button class="btn" onclick="exportReport()">Export to CSV</button>
+                <!-- Loading State -->
+                <div id="master_report_loading" style="text-align: center; padding: 40px; color: #666;">
+                    <div style="font-size: 2em; margin-bottom: 10px;">📊</div>
+                    <div>Loading master report data...</div>
                 </div>
 
-                <div class="report-section">
-                    <h3>Quick Stats</h3>
-                    <div id="quick_stats">
-                        <div class="stat-card">
-                            <h4>Today's Downloads</h4>
-                            <span id="today_downloads">0</span>
+                <!-- Master Report Table Container -->
+                <div id="master_report_container" style="display: none;">
+                    <!-- Table Wrapper with Horizontal Scroll -->
+                    <div style="overflow-x: auto; border: 1px solid #ddd; border-radius: 8px; background: white;">
+                        <table id="master_report_table" style="width: 100%; min-width: 2000px; border-collapse: collapse;">
+                            <!-- Table Header with Search Inputs -->
+                            <thead style="background: #f8f9fa; position: sticky; top: 0; z-index: 10;">
+                                <!-- Column Headers -->
+                                <tr style="border-bottom: 2px solid #dee2e6;">
+                                    <!-- Fixed Columns -->
+                                    <th style="position: sticky; left: 0; background: #e9ecef; z-index: 11; padding: 12px 8px; border-right: 2px solid #adb5bd; min-width: 100px; font-weight: 600;">PO#</th>
+                                    <th style="position: sticky; left: 100px; background: #e9ecef; z-index: 11; padding: 12px 8px; border-right: 2px solid #adb5bd; min-width: 120px; font-weight: 600;">Item #</th>
+                                    <th style="position: sticky; left: 220px; background: #e9ecef; z-index: 11; padding: 12px 8px; border-right: 2px solid #adb5bd; min-width: 200px; font-weight: 600;">Description</th>
+
+                                    <!-- Scrollable Columns -->
+                                    <th style="padding: 12px 8px; min-width: 80px; font-weight: 600;">Color</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Ship To</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Need By</th>
+                                    <th style="padding: 12px 8px; min-width: 80px; font-weight: 600;">Qty</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Bundle Qty</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Unit Price</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Extension</th>
+                                    <th style="padding: 12px 8px; min-width: 120px; font-weight: 600;">Company</th>
+                                    <th style="padding: 12px 8px; min-width: 120px; font-weight: 600;">Purchase From</th>
+                                    <th style="padding: 12px 8px; min-width: 80px; font-weight: 600;">Currency</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">PO Date</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Cancel Date</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Ship By</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Ship Via</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Order Type</th>
+                                    <th style="padding: 12px 8px; min-width: 80px; font-weight: 600;">Status</th>
+                                    <th style="padding: 12px 8px; min-width: 120px; font-weight: 600;">Factory</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Location</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Prod Rep</th>
+                                    <th style="padding: 12px 8px; min-width: 150px; font-weight: 600;">Ship To Address</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Terms</th>
+                                    <th style="padding: 12px 8px; min-width: 130px; font-weight: 600;">First Created</th>
+                                    <th style="padding: 12px 8px; min-width: 130px; font-weight: 600;">Last Updated</th>
+                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Update Count</th>
+                                </tr>
+
+                                <!-- Search Input Row -->
+                                <tr style="border-bottom: 1px solid #dee2e6;">
+                                    <!-- Fixed Column Search Inputs -->
+                                    <th style="position: sticky; left: 0; background: #f8f9fa; z-index: 11; padding: 8px; border-right: 2px solid #adb5bd;">
+                                        <input type="text" id="search_po_number" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
+                                    </th>
+                                    <th style="position: sticky; left: 100px; background: #f8f9fa; z-index: 11; padding: 8px; border-right: 2px solid #adb5bd;">
+                                        <input type="text" id="search_item_number" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
+                                    </th>
+                                    <th style="position: sticky; left: 220px; background: #f8f9fa; z-index: 11; padding: 8px; border-right: 2px solid #adb5bd;">
+                                        <input type="text" id="search_description" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
+                                    </th>
+
+                                    <!-- Scrollable Column Search Inputs -->
+                                    <th style="padding: 8px;"><input type="text" id="search_color" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_ship_to" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_need_by" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_qty" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_bundle_qty" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_unit_price" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_extension" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_company" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_purchase_from" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_currency" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_po_date" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_cancel_date" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_ship_by" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_ship_via" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_order_type" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_status" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_factory" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_location" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_prod_rep" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_ship_to_address" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_terms" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_first_created" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_last_updated" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="padding: 8px;"><input type="text" id="search_update_count" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                </tr>
+                            </thead>
+
+                            <!-- Table Body -->
+                            <tbody id="master_report_tbody">
+                                <!-- Data rows will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Report Footer -->
+                    <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+                        <div id="master_report_stats" style="color: #666; font-size: 0.9em;">
+                            📊 Showing 0 of 0 total records | 🔍 Active filters: 0 | 📅 Last updated: -
                         </div>
-                        <div class="stat-card">
-                            <h4>This Week</h4>
-                            <span id="week_downloads">0</span>
-                        </div>
-                        <div class="stat-card">
-                            <h4>Total Files</h4>
-                            <span id="total_files">0</span>
+                        <div>
+                            <button class="btn-secondary" onclick="clearAllSearchFilters()" style="margin-right: 10px;">🗑️ Clear Filters</button>
+                            <button class="btn-secondary" onclick="loadMoreRecords()">📄 Load More</button>
                         </div>
                     </div>
+                </div>
+
+                <!-- No Data State -->
+                <div id="master_report_empty" style="display: none; text-align: center; padding: 40px; color: #666;">
+                    <div style="font-size: 3em; margin-bottom: 15px;">📊</div>
+                    <h3>No PO Data Available</h3>
+                    <p>No PO records found in the database. Download some artwork first to populate the master report.</p>
+                    <button class="btn" onclick="showTab('artwork')" style="margin-top: 15px;">📥 Go to Download Artwork</button>
                 </div>
             </div>
         </div>
@@ -2721,6 +3082,9 @@ HTML_TEMPLATE = """
                 if (!currentPO) {
                     document.getElementById('welcome_section').style.display = 'block';
                 }
+            } else if (tabName === 'report') {
+                // Auto-load master report when report tab is opened
+                loadMasterReport();
             }
 
             // Restore form state after switching
@@ -3684,6 +4048,224 @@ HTML_TEMPLATE = """
         function clearError() {
             const container = document.getElementById('error_container');
             container.innerHTML = '';
+        }
+
+        // Master Report Functions
+        let masterReportData = [];
+        let searchTimeout = null;
+
+        function loadMasterReport() {
+            console.log('🔍 Loading master report...');
+
+            // Show loading state
+            document.getElementById('master_report_loading').style.display = 'block';
+            document.getElementById('master_report_container').style.display = 'none';
+            document.getElementById('master_report_empty').style.display = 'none';
+
+            fetch('/api/master_report?limit=20')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('📊 Master report data received:', data);
+
+                    if (data.success && data.data.length > 0) {
+                        masterReportData = data.data;
+                        displayMasterReportData(data.data);
+                        updateMasterReportStats(data);
+
+                        // Show table
+                        document.getElementById('master_report_loading').style.display = 'none';
+                        document.getElementById('master_report_container').style.display = 'block';
+                    } else {
+                        // Show empty state
+                        document.getElementById('master_report_loading').style.display = 'none';
+                        document.getElementById('master_report_empty').style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('❌ Error loading master report:', error);
+                    showError('Failed to load master report: ' + error.message);
+                    document.getElementById('master_report_loading').style.display = 'none';
+                    document.getElementById('master_report_empty').style.display = 'block';
+                });
+        }
+
+        function displayMasterReportData(data) {
+            const tbody = document.getElementById('master_report_tbody');
+            tbody.innerHTML = '';
+
+            data.forEach((row, index) => {
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid #dee2e6';
+
+                // Alternate row colors
+                if (index % 2 === 1) {
+                    tr.style.backgroundColor = '#f8f9fa';
+                }
+
+                tr.innerHTML = `
+                    <!-- Fixed Columns -->
+                    <td style="position: sticky; left: 0; background: ${index % 2 === 1 ? '#f8f9fa' : 'white'}; z-index: 5; padding: 8px; border-right: 2px solid #adb5bd; font-weight: 500;">${row.po_number || ''}</td>
+                    <td style="position: sticky; left: 100px; background: ${index % 2 === 1 ? '#f8f9fa' : 'white'}; z-index: 5; padding: 8px; border-right: 2px solid #adb5bd; font-weight: 500;">${row.item_number || ''}</td>
+                    <td style="position: sticky; left: 220px; background: ${index % 2 === 1 ? '#f8f9fa' : 'white'}; z-index: 5; padding: 8px; border-right: 2px solid #adb5bd; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${row.description || ''}">${row.description || ''}</td>
+
+                    <!-- Scrollable Columns -->
+                    <td style="padding: 8px;">${row.color || ''}</td>
+                    <td style="padding: 8px;">${row.ship_to || ''}</td>
+                    <td style="padding: 8px;">${row.need_by || ''}</td>
+                    <td style="padding: 8px; text-align: right;">${row.qty || ''}</td>
+                    <td style="padding: 8px; text-align: right;">${row.bundle_qty || ''}</td>
+                    <td style="padding: 8px; text-align: right;">${row.unit_price || ''}</td>
+                    <td style="padding: 8px; text-align: right;">${row.extension || ''}</td>
+                    <td style="padding: 8px;">${row.company || ''}</td>
+                    <td style="padding: 8px;">${row.purchase_from || ''}</td>
+                    <td style="padding: 8px;">${row.currency || ''}</td>
+                    <td style="padding: 8px;">${row.po_date || ''}</td>
+                    <td style="padding: 8px;">${row.cancel_date || ''}</td>
+                    <td style="padding: 8px;">${row.ship_by || ''}</td>
+                    <td style="padding: 8px;">${row.ship_via || ''}</td>
+                    <td style="padding: 8px;">${row.order_type || ''}</td>
+                    <td style="padding: 8px;">${row.status || ''}</td>
+                    <td style="padding: 8px;">${row.factory || ''}</td>
+                    <td style="padding: 8px;">${row.location || ''}</td>
+                    <td style="padding: 8px;">${row.prod_rep || ''}</td>
+                    <td style="padding: 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${row.ship_to_address || ''}">${row.ship_to_address || ''}</td>
+                    <td style="padding: 8px;">${row.terms || ''}</td>
+                    <td style="padding: 8px; font-size: 0.8em; color: #666;">${row.first_created || ''}</td>
+                    <td style="padding: 8px; font-size: 0.8em; color: #666;">${row.last_updated || ''}</td>
+                    <td style="padding: 8px; text-align: center;">${row.update_count || '0'}</td>
+                `;
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateMasterReportStats(data) {
+            const now = new Date().toLocaleString();
+            const activeFilters = getActiveFilterCount();
+
+            document.getElementById('master_report_stats').textContent =
+                `📊 Showing ${data.filtered_count} of ${data.total_count} total records | 🔍 Active filters: ${activeFilters} | 📅 Last updated: ${now}`;
+        }
+
+        function getActiveFilterCount() {
+            const searchInputs = document.querySelectorAll('#master_report_table input[id^="search_"]');
+            let count = 0;
+            searchInputs.forEach(input => {
+                if (input.value.trim()) count++;
+            });
+            return count;
+        }
+
+        function searchMasterReport() {
+            // Clear existing timeout
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+
+            // Debounce search to avoid too many requests
+            searchTimeout = setTimeout(() => {
+                performMasterReportSearch();
+            }, 500);
+        }
+
+        function performMasterReportSearch() {
+            console.log('🔍 Performing master report search...');
+
+            // Collect search filters
+            const searchParams = new URLSearchParams();
+            searchParams.append('limit', '20');
+
+            const searchInputs = document.querySelectorAll('#master_report_table input[id^="search_"]');
+            searchInputs.forEach(input => {
+                if (input.value.trim()) {
+                    const columnName = input.id.replace('search_', '');
+                    searchParams.append(`search_${columnName}`, input.value.trim());
+                }
+            });
+
+            // Show loading state
+            document.getElementById('master_report_loading').style.display = 'block';
+            document.getElementById('master_report_container').style.display = 'none';
+
+            fetch(`/api/master_report?${searchParams.toString()}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log('📊 Search results received:', data);
+
+                    if (data.success) {
+                        masterReportData = data.data;
+                        displayMasterReportData(data.data);
+                        updateMasterReportStats(data);
+
+                        // Show table or empty state
+                        document.getElementById('master_report_loading').style.display = 'none';
+                        if (data.data.length > 0) {
+                            document.getElementById('master_report_container').style.display = 'block';
+                            document.getElementById('master_report_empty').style.display = 'none';
+                        } else {
+                            document.getElementById('master_report_container').style.display = 'none';
+                            document.getElementById('master_report_empty').style.display = 'block';
+                        }
+                    } else {
+                        showError('Search failed: ' + (data.error || 'Unknown error'));
+                        document.getElementById('master_report_loading').style.display = 'none';
+                        document.getElementById('master_report_empty').style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('❌ Error searching master report:', error);
+                    showError('Search failed: ' + error.message);
+                    document.getElementById('master_report_loading').style.display = 'none';
+                    document.getElementById('master_report_empty').style.display = 'block';
+                });
+        }
+
+        function refreshMasterReport() {
+            console.log('🔄 Refreshing master report...');
+            clearAllSearchFilters();
+            loadMasterReport();
+        }
+
+        function clearAllSearchFilters() {
+            console.log('🗑️ Clearing all search filters...');
+            const searchInputs = document.querySelectorAll('#master_report_table input[id^="search_"]');
+            searchInputs.forEach(input => {
+                input.value = '';
+            });
+            loadMasterReport();
+        }
+
+        function exportMasterReport() {
+            console.log('📥 Exporting master report to Excel...');
+
+            // Collect current search filters
+            const searchParams = new URLSearchParams();
+            const searchInputs = document.querySelectorAll('#master_report_table input[id^="search_"]');
+            searchInputs.forEach(input => {
+                if (input.value.trim()) {
+                    const columnName = input.id.replace('search_', '');
+                    searchParams.append(`search_${columnName}`, input.value.trim());
+                }
+            });
+
+            // Create download URL
+            const exportUrl = `/api/export_master_report?${searchParams.toString()}`;
+
+            // Create temporary link and trigger download
+            const link = document.createElement('a');
+            link.href = exportUrl;
+            link.download = '';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showSuccess('📥 Excel export started! Check your downloads folder.');
+        }
+
+        function loadMoreRecords() {
+            console.log('📄 Loading more records...');
+            // TODO: Implement pagination
+            showInfo('📄 Pagination feature coming soon!');
         }
 
 
