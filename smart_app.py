@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.5.0"
-VERSION_DATE = "2025-08-03 17:00"
-LAST_EDIT = "Checkpoint 15 - Basic carton creation functionality restored"
+VERSION = "1.8.1"
+VERSION_DATE = "2025-08-03 18:30"
+LAST_EDIT = "Complete 9-Step PO Management Wizard with Option A/B Packing, Barcodes, and Courier Management"
 
 from flask import Flask, render_template_string, request, jsonify
 import os
@@ -175,6 +175,12 @@ def init_database():
         )
     ''')
 
+    # Add packing_option column if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE cartons ADD COLUMN packing_option TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     # Create carton items table for tracking what's in each carton
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS carton_items (
@@ -183,7 +189,9 @@ def init_database():
             po_number TEXT,
             item_number TEXT,
             description TEXT,
+            color TEXT,
             packed_qty INTEGER,
+            original_qty INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (carton_id) REFERENCES cartons (id)
         )
@@ -198,6 +206,8 @@ def init_database():
             awb_number TEXT,
             awb_document_path TEXT,
             shipment_date TEXT,
+            total_cartons INTEGER,
+            total_weight REAL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -213,6 +223,17 @@ def init_database():
         )
     ''')
 
+    # Create po_completion_status table to track partial vs complete shipments
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS po_completion_status (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            po_number TEXT,
+            completion_type TEXT,
+            finished_quantities TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     conn.commit()
     conn.close()
     print("📊 Database initialized successfully")
@@ -223,24 +244,30 @@ def create_sample_po_data():
     cursor = conn.cursor()
 
     # Check if sample data already exists
-    cursor.execute('SELECT COUNT(*) FROM po_headers WHERE po_number = ?', ('1284789',))
+    cursor.execute('SELECT COUNT(*) FROM po_headers WHERE po_number IN (?, ?)', ('1284789', '1288176'))
     if cursor.fetchone()[0] > 0:
         conn.close()
         return  # Sample data already exists
 
-    # Insert sample PO header
-    cursor.execute('''
-        INSERT INTO po_headers (po_number, purchase_from, ship_to, company, currency, status)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', ('1284789', 'Bird Dogs', 'Warehouse A', 'BrandID', 'USD', 'Active'))
+    # Insert sample PO headers
+    sample_pos = [
+        ('1284789', 'Bird Dogs', 'Warehouse A', 'BrandID', 'USD', 'Active'),
+        ('1288176', 'Bird Dogs', 'Warehouse B', 'BrandID', 'USD', 'Active')
+    ]
 
-    # Insert sample PO items with proper quantities
-    sample_items = [
+    for po_data in sample_pos:
+        cursor.execute('''
+            INSERT INTO po_headers (po_number, purchase_from, ship_to, company, currency, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', po_data)
+
+    # Insert sample PO items with proper quantities for both POs
+    sample_items_1284789 = [
         {
             'item_number': '18483HEAT5SIF',
             'description': 'Bird Dogs Knockout Logo - 3D Silicone',
             'color': 'Silver Filigree',
-            'qty': '150',  # Proper quantity
+            'qty': '150',
             'bundle_qty': 'NA',
             'unit_price': '12.50',
             'extension': '1875.00'
@@ -249,7 +276,7 @@ def create_sample_po_data():
             'item_number': '18483HEAT5TEE',
             'description': 'Bird Dogs Knockout Logo - 3D Silicone',
             'color': 'Total Eclipse',
-            'qty': '200',  # Proper quantity
+            'qty': '200',
             'bundle_qty': 'NA',
             'unit_price': '12.50',
             'extension': '2500.00'
@@ -258,19 +285,59 @@ def create_sample_po_data():
             'item_number': '18483HEAT5mei',
             'description': 'Bird Dogs Knockout Logo - 3D Silicone',
             'color': 'moonless night',
-            'qty': '100',  # Proper quantity
+            'qty': '100',
             'bundle_qty': 'NA',
             'unit_price': '12.50',
             'extension': '1250.00'
         }
     ]
 
-    for item in sample_items:
+    sample_items_1288176 = [
+        {
+            'item_number': 'BD2024POLO01',
+            'description': 'Bird Dogs Premium Polo Shirt',
+            'color': 'Navy Blue',
+            'qty': '300',
+            'bundle_qty': 'NA',
+            'unit_price': '45.00',
+            'extension': '13500.00'
+        },
+        {
+            'item_number': 'BD2024POLO02',
+            'description': 'Bird Dogs Premium Polo Shirt',
+            'color': 'White',
+            'qty': '250',
+            'bundle_qty': 'NA',
+            'unit_price': '45.00',
+            'extension': '11250.00'
+        },
+        {
+            'item_number': 'BD2024POLO03',
+            'description': 'Bird Dogs Premium Polo Shirt',
+            'color': 'Forest Green',
+            'qty': '200',
+            'bundle_qty': 'NA',
+            'unit_price': '45.00',
+            'extension': '9000.00'
+        }
+    ]
+
+    # Insert items for PO 1284789
+    for item in sample_items_1284789:
         cursor.execute('''
             INSERT INTO po_items (po_number, item_number, description, color, ship_to, need_by, qty, bundle_qty, unit_price, extension)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', ('1284789', item['item_number'], item['description'], item['color'],
               'Warehouse A', '2025-08-15', item['qty'], item['bundle_qty'],
+              item['unit_price'], item['extension']))
+
+    # Insert items for PO 1288176
+    for item in sample_items_1288176:
+        cursor.execute('''
+            INSERT INTO po_items (po_number, item_number, description, color, ship_to, need_by, qty, bundle_qty, unit_price, extension)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', ('1288176', item['item_number'], item['description'], item['color'],
+              'Warehouse B', '2025-08-20', item['qty'], item['bundle_qty'],
               item['unit_price'], item['extension']))
 
     conn.commit()
@@ -2188,9 +2255,38 @@ def get_po_items():
     except Exception as e:
         return jsonify({"success": False, "message": f"Error retrieving PO items: {str(e)}"})
 
+@app.route('/api/po_management/save_completion_status', methods=['POST'])
+def save_completion_status():
+    """Save completion status and finished quantities"""
+    try:
+        data = request.json
+        po_number = data.get('po_number', '').strip()
+        completion_type = data.get('completion_type', '')
+        finished_quantities = data.get('finished_quantities', {})
+
+        if not po_number or not completion_type:
+            return jsonify({"success": False, "message": "PO number and completion type are required"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Save completion status
+        cursor.execute('''
+            INSERT INTO po_completion_status (po_number, completion_type, finished_quantities)
+            VALUES (?, ?, ?)
+        ''', (po_number, completion_type, str(finished_quantities)))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({"success": True, "message": "Completion status saved"})
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error saving completion status: {str(e)}"})
+
 @app.route('/api/po_management/create_cartons', methods=['POST'])
 def create_cartons():
-    """Create cartons and pack items"""
+    """Create cartons and pack items with enhanced tracking"""
     try:
         print("🔧 API: create_cartons called")
         data = request.json
@@ -2198,9 +2294,11 @@ def create_cartons():
 
         po_number = data.get('po_number', '').strip()
         cartons_data = data.get('cartons', [])
+        packing_option = data.get('packing_option', 'A')
 
         print(f"📦 API: PO Number: {po_number}")
         print(f"📋 API: Cartons data: {cartons_data}")
+        print(f"🎯 API: Packing option: {packing_option}")
 
         if not po_number or not cartons_data:
             print("❌ API: Missing PO number or cartons data")
@@ -2209,34 +2307,41 @@ def create_cartons():
         conn = sqlite3.connect('po_database.db')
         cursor = conn.cursor()
 
+        # Get existing carton count for this PO to continue numbering
+        cursor.execute('SELECT COUNT(*) FROM cartons WHERE po_number = ?', (po_number,))
+        existing_count = cursor.fetchone()[0]
+
         created_cartons = []
 
-        for carton_data in cartons_data:
+        for i, carton_data in enumerate(cartons_data):
             # Generate carton number and barcode
-            carton_number = f"CTN{len(created_cartons) + 1:03d}"
+            carton_number = f"CTN{existing_count + i + 1:03d}"
             barcode = f"{po_number}-{carton_number}-{datetime.now().strftime('%Y%m%d')}"
 
-            # Insert carton
+            # Insert carton with enhanced data
             cursor.execute('''
-                INSERT INTO cartons (po_number, carton_number, carton_size, actual_weight, barcode)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (po_number, carton_number, carton_data.get('size', ''),
-                  carton_data.get('weight', 0), barcode))
+                INSERT INTO cartons (po_number, carton_number, carton_size, actual_weight, barcode, packing_option)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (po_number, carton_number, carton_data.get('size', 'Standard'),
+                  carton_data.get('weight', 0), barcode, f"Option {packing_option}"))
 
             carton_id = cursor.lastrowid
 
-            # Insert carton items
+            # Insert carton items with enhanced tracking
             for item in carton_data.get('items', []):
                 cursor.execute('''
-                    INSERT INTO carton_items (carton_id, po_number, item_number, description, packed_qty)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO carton_items (carton_id, po_number, item_number, description, color, packed_qty, original_qty)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (carton_id, po_number, item['item_number'],
-                      item['description'], item['packed_qty']))
+                      item['description'], item.get('color', ''),
+                      item['packed_qty'], item.get('original_qty', item['packed_qty'])))
 
             created_cartons.append({
                 'id': carton_id,
                 'carton_number': carton_number,
                 'barcode': barcode,
+                'weight': carton_data.get('weight', 0),
+                'size': carton_data.get('size', 'Standard'),
                 'items': carton_data.get('items', [])
             })
 
@@ -2254,7 +2359,7 @@ def create_cartons():
 
 @app.route('/api/po_management/create_shipment', methods=['POST'])
 def create_shipment():
-    """Create shipment with courier details"""
+    """Create shipment with enhanced courier details and tracking"""
     try:
         data = request.json
         po_number = data.get('po_number', '').strip()
@@ -2268,11 +2373,20 @@ def create_shipment():
         conn = sqlite3.connect('po_database.db')
         cursor = conn.cursor()
 
-        # Create shipment
+        # Calculate total weight and carton count
+        total_weight = 0
+        for carton_id in carton_ids:
+            cursor.execute('SELECT actual_weight FROM cartons WHERE id = ?', (carton_id,))
+            weight_result = cursor.fetchone()
+            if weight_result and weight_result[0]:
+                total_weight += weight_result[0]
+
+        # Create shipment with enhanced tracking
         cursor.execute('''
-            INSERT INTO shipments (po_number, courier, awb_number, shipment_date)
-            VALUES (?, ?, ?, ?)
-        ''', (po_number, courier, awb_number, datetime.now().strftime('%Y-%m-%d')))
+            INSERT INTO shipments (po_number, courier, awb_number, shipment_date, total_cartons, total_weight)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (po_number, courier, awb_number, datetime.now().strftime('%Y-%m-%d'),
+              len(carton_ids), total_weight))
 
         shipment_id = cursor.lastrowid
 
@@ -2286,7 +2400,12 @@ def create_shipment():
         conn.commit()
         conn.close()
 
-        return jsonify({"success": True, "shipment_id": shipment_id})
+        return jsonify({
+            "success": True,
+            "shipment_id": shipment_id,
+            "total_cartons": len(carton_ids),
+            "total_weight": total_weight
+        })
 
     except Exception as e:
         return jsonify({"success": False, "message": f"Error creating shipment: {str(e)}"})
@@ -2326,6 +2445,130 @@ def debug_po_data():
 
     except Exception as e:
         return jsonify({"success": False, "message": f"Debug error: {str(e)}"})
+
+@app.route('/api/po_management/get_carton_summary', methods=['POST'])
+def get_carton_summary():
+    """Get summary of all cartons for a PO"""
+    try:
+        data = request.json
+        po_number = data.get('po_number', '').strip()
+
+        if not po_number:
+            return jsonify({"success": False, "message": "PO number is required"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get cartons with their items
+        cursor.execute('''
+            SELECT c.id, c.carton_number, c.barcode, c.actual_weight, c.carton_size, c.packing_option
+            FROM cartons c
+            WHERE c.po_number = ?
+            ORDER BY c.carton_number
+        ''', (po_number,))
+
+        cartons = []
+        for carton_row in cursor.fetchall():
+            carton_id, carton_number, barcode, weight, size, packing_option = carton_row
+
+            # Get items for this carton
+            cursor.execute('''
+                SELECT item_number, description, color, packed_qty, original_qty
+                FROM carton_items
+                WHERE carton_id = ?
+            ''', (carton_id,))
+
+            items = []
+            total_qty = 0
+            for item_row in cursor.fetchall():
+                item_number, description, color, packed_qty, original_qty = item_row
+                items.append({
+                    'item_number': item_number,
+                    'description': description,
+                    'color': color,
+                    'packed_qty': packed_qty,
+                    'original_qty': original_qty
+                })
+                total_qty += packed_qty
+
+            cartons.append({
+                'id': carton_id,
+                'carton_number': carton_number,
+                'barcode': barcode,
+                'weight': weight,
+                'size': size,
+                'packing_option': packing_option,
+                'items': items,
+                'total_qty': total_qty
+            })
+
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "cartons": cartons,
+            "total_cartons": len(cartons)
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error getting carton summary: {str(e)}"})
+
+@app.route('/api/po_management/generate_packing_list', methods=['POST'])
+def generate_packing_list():
+    """Generate complete packing list for download"""
+    try:
+        data = request.json
+        po_number = data.get('po_number', '').strip()
+
+        if not po_number:
+            return jsonify({"success": False, "message": "PO number is required"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get PO header info
+        cursor.execute('SELECT * FROM po_headers WHERE po_number = ?', (po_number,))
+        header = cursor.fetchone()
+
+        # Get shipment info
+        cursor.execute('''
+            SELECT courier, awb_number, shipment_date, total_cartons, total_weight
+            FROM shipments
+            WHERE po_number = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        ''', (po_number,))
+        shipment = cursor.fetchone()
+
+        # Get cartons and items
+        cursor.execute('''
+            SELECT c.carton_number, c.barcode, c.actual_weight, c.carton_size,
+                   ci.item_number, ci.description, ci.color, ci.packed_qty
+            FROM cartons c
+            LEFT JOIN carton_items ci ON c.id = ci.carton_id
+            WHERE c.po_number = ?
+            ORDER BY c.carton_number, ci.item_number
+        ''', (po_number,))
+
+        packing_data = cursor.fetchall()
+        conn.close()
+
+        # Format data for packing list
+        packing_list = {
+            'po_number': po_number,
+            'header': header,
+            'shipment': shipment,
+            'packing_data': packing_data,
+            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        return jsonify({
+            "success": True,
+            "packing_list": packing_list
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error generating packing list: {str(e)}"})
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -3221,24 +3464,70 @@ HTML_TEMPLATE = """
 
         <!-- PO Management Tab -->
         <div id="po" class="tab-content">
+            <!-- Progress Indicator -->
+            <div style="margin-bottom: 30px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+                <h2 style="margin: 0 0 15px 0; text-align: center;">📦 Complete PO Management Wizard</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div class="wizard-step" id="wizard_step_1" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.2); min-width: 100px;">
+                        <div style="font-size: 12px; opacity: 0.9;">Step 1</div>
+                        <div style="font-weight: bold;">PO Selection</div>
+                    </div>
+                    <div class="wizard-step" id="wizard_step_2" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
+                        <div style="font-size: 12px; opacity: 0.9;">Step 2</div>
+                        <div style="font-weight: bold;">Show Items</div>
+                    </div>
+                    <div class="wizard-step" id="wizard_step_3" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
+                        <div style="font-size: 12px; opacity: 0.9;">Step 3</div>
+                        <div style="font-weight: bold;">Completion</div>
+                    </div>
+                    <div class="wizard-step" id="wizard_step_4" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
+                        <div style="font-size: 12px; opacity: 0.9;">Step 4</div>
+                        <div style="font-weight: bold;">Quantities</div>
+                    </div>
+                    <div class="wizard-step" id="wizard_step_5" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
+                        <div style="font-size: 12px; opacity: 0.9;">Step 5</div>
+                        <div style="font-weight: bold;">Packing Logic</div>
+                    </div>
+                    <div class="wizard-step" id="wizard_step_6" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
+                        <div style="font-size: 12px; opacity: 0.9;">Step 6</div>
+                        <div style="font-weight: bold;">Packing</div>
+                    </div>
+                    <div class="wizard-step" id="wizard_step_7" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
+                        <div style="font-size: 12px; opacity: 0.9;">Step 7</div>
+                        <div style="font-weight: bold;">Summary</div>
+                    </div>
+                    <div class="wizard-step" id="wizard_step_8" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
+                        <div style="font-size: 12px; opacity: 0.9;">Step 8</div>
+                        <div style="font-weight: bold;">Courier</div>
+                    </div>
+                    <div class="wizard-step" id="wizard_step_9" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
+                        <div style="font-size: 12px; opacity: 0.9;">Step 9</div>
+                        <div style="font-weight: bold;">Complete</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Step 1: PO Selection -->
             <div id="po_step_1" class="po-step active">
                 <div class="step">
-                    <h2><span class="step-number">1️⃣</span>Select PO</h2>
-                    <p>Enter or select PO number for packing management</p>
+                    <h2><span class="step-number">1️⃣</span>PO Selection</h2>
+                    <p>Input or select PO number to begin the packing process</p>
 
-                    <div style="margin: 20px 0;">
-                        <label for="po_management_input" style="display: block; margin-bottom: 10px; font-weight: bold;">PO Number:</label>
-                        <div style="display: flex; gap: 10px; align-items: center;">
+                    <div style="margin: 30px 0; padding: 25px; background: #f8f9fa; border-radius: 12px; border-left: 4px solid #007bff;">
+                        <label for="po_management_input" style="display: block; margin-bottom: 15px; font-weight: bold; font-size: 16px;">PO Number:</label>
+                        <div style="display: flex; gap: 15px; align-items: center;">
                             <input type="text" id="po_management_input" placeholder="Enter PO number (e.g., 1288176)"
-                                   style="flex: 1; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px;">
-                            <button onclick="loadPOForManagement()" style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
-                                Load PO
+                                   style="flex: 1; padding: 15px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; transition: border-color 0.3s;">
+                            <button onclick="loadPOForManagement()" style="padding: 15px 30px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; transition: background-color 0.3s;">
+                                🔍 Load PO
                             </button>
+                        </div>
+                        <div style="margin-top: 10px; font-size: 14px; color: #666;">
+                            💡 Try sample POs: 1284789 or 1288176 for testing
                         </div>
                     </div>
 
-                    <div id="po_management_status" style="margin-top: 15px; padding: 10px; border-radius: 5px; display: none;"></div>
+                    <div id="po_management_status" style="margin-top: 20px; padding: 15px; border-radius: 8px; display: none;"></div>
                 </div>
             </div>
 
@@ -3246,14 +3535,14 @@ HTML_TEMPLATE = """
             <div id="po_step_2" class="po-step" style="display: none;">
                 <div class="step">
                     <h2><span class="step-number">2️⃣</span>PO Items</h2>
-                    <p>Review all items in this PO</p>
+                    <p>Review all items in this PO before proceeding</p>
 
                     <div id="po_items_container" style="margin: 20px 0;">
                         <!-- Items will be loaded here -->
                     </div>
 
-                    <div style="margin: 20px 0; text-align: center;">
-                        <button onclick="goToPOStep(1)" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-right: 10px;">
+                    <div style="margin: 30px 0; text-align: center;">
+                        <button onclick="goToPOStep(1)" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-right: 15px;">
                             ← Back
                         </button>
                         <button onclick="goToPOStep(3)" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
@@ -4899,10 +5188,32 @@ HTML_TEMPLATE = """
             showInfo('📄 Pagination feature coming soon!');
         }
 
-        // PO Management Functions
+        // PO Management Functions - Complete 9-Step Wizard
         let currentPOData = null;
         let currentCompletionStatus = null;
         let currentPackingLogic = null;
+        let createdCartons = [];
+        let currentStep = 1;
+
+        function updateWizardProgress(step) {
+            // Update wizard progress indicator
+            for (let i = 1; i <= 9; i++) {
+                const wizardStep = document.getElementById(`wizard_step_${i}`);
+                if (wizardStep) {
+                    if (i === step) {
+                        wizardStep.style.background = 'rgba(255,255,255,0.3)';
+                        wizardStep.style.fontWeight = 'bold';
+                    } else if (i < step) {
+                        wizardStep.style.background = 'rgba(40,167,69,0.3)';
+                        wizardStep.style.fontWeight = 'normal';
+                    } else {
+                        wizardStep.style.background = 'rgba(255,255,255,0.1)';
+                        wizardStep.style.fontWeight = 'normal';
+                    }
+                }
+            }
+            currentStep = step;
+        }
 
         function loadPOForManagement() {
             const poNumber = document.getElementById('po_management_input').value.trim();
@@ -4914,7 +5225,7 @@ HTML_TEMPLATE = """
             }
 
             statusDiv.style.display = 'block';
-            statusDiv.innerHTML = '<div style="color: #007bff;">🔍 Loading PO items...</div>';
+            statusDiv.innerHTML = '<div style="color: #007bff; padding: 15px; background: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196f3;">🔍 Loading PO items...</div>';
 
             // First debug the raw data
             fetch('/api/po_management/debug_po', {
@@ -4938,11 +5249,12 @@ HTML_TEMPLATE = """
                 console.log('📦 Processed PO data:', data);
                 if (data.success) {
                     currentPOData = {po_number: poNumber, items: data.items};
+                    statusDiv.innerHTML = `<div style="color: #28a745; padding: 15px; background: #d4edda; border-radius: 8px; border-left: 4px solid #28a745;">✅ Successfully loaded ${data.items.length} items!</div>`;
                     displayPOItems(data.items);
-                    statusDiv.innerHTML = '<div style="color: #28a745;">✅ PO loaded successfully!</div>';
+                    updateWizardProgress(2);
                     setTimeout(() => goToPOStep(2), 1000);
                 } else {
-                    statusDiv.innerHTML = `<div style="color: #dc3545;">❌ ${data.message}</div>`;
+                    statusDiv.innerHTML = `<div style="color: #dc3545; padding: 15px; background: #f8d7da; border-radius: 8px; border-left: 4px solid #dc3545;">❌ ${data.message}</div>`;
                 }
             })
             .catch(error => {
@@ -5000,6 +5312,13 @@ HTML_TEMPLATE = """
 
             // Show target step
             document.getElementById(`po_step_${stepNumber}`).style.display = 'block';
+
+            // Update wizard progress if it's a numeric step
+            if (typeof stepNumber === 'number') {
+                updateWizardProgress(stepNumber);
+            } else if (stepNumber === '6a' || stepNumber === '6b') {
+                updateWizardProgress(6);
+            }
         }
 
         function goToPreviousStep() {
@@ -5024,12 +5343,25 @@ HTML_TEMPLATE = """
         function selectCompletionStatus(status) {
             currentCompletionStatus = status;
 
+            // Save completion status to database
+            fetch('/api/po_management/save_completion_status', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    po_number: currentPOData.po_number,
+                    completion_type: status,
+                    finished_quantities: {}
+                })
+            });
+
             if (status === 'all') {
                 // Skip partial quantities step, go directly to packing logic
+                updateWizardProgress(5);
                 goToPOStep(5);
             } else {
                 // Show partial quantities step
                 displayPartialQuantitiesForm();
+                updateWizardProgress(4);
                 goToPOStep(4);
             }
         }
@@ -5110,6 +5442,7 @@ HTML_TEMPLATE = """
 
         function selectPackingLogic(logic) {
             currentPackingLogic = logic;
+            updateWizardProgress(6);
 
             if (logic === 'multi_to_one') {
                 showMultiToOnePackingInterface();
@@ -5126,8 +5459,8 @@ HTML_TEMPLATE = """
 
             let html = `
                 <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #2196f3;">
-                    <h4>📦 Select items to pack together in one carton</h4>
-                    <p style="color: #666; margin-bottom: 15px;">Check the items you want to pack together. All selected items will go into one carton.</p>
+                    <h4>📦 Option A: Multi-line → 1 Carton</h4>
+                    <p style="color: #666; margin-bottom: 15px;">Select multiple items to pack together in one carton. All selected items will go into one carton.</p>
 
                     <div style="overflow-x: auto;">
                         <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
@@ -5136,7 +5469,9 @@ HTML_TEMPLATE = """
                                     <th style="padding: 10px; border: 1px solid #ddd; width: 50px;">Select</th>
                                     <th style="padding: 10px; border: 1px solid #ddd;">Item #</th>
                                     <th style="padding: 10px; border: 1px solid #ddd;">Description</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Color</th>
                                     <th style="padding: 10px; border: 1px solid #ddd;">Qty to Pack</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Status</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -5144,14 +5479,23 @@ HTML_TEMPLATE = """
 
             items.forEach((item, index) => {
                 const qtyToPack = item.finished_qty || item.qty;
+                const isPacked = createdCartons.some(carton =>
+                    carton.items.some(cartonItem => cartonItem.item_number === item.item_number)
+                );
+                const statusText = isPacked ? '✅ Packed' : '⏳ Pending';
+                const statusColor = isPacked ? '#28a745' : '#ffc107';
+                const rowStyle = isPacked ? 'background: #f8fff8;' : '';
+
                 html += `
-                    <tr>
+                    <tr style="${rowStyle}">
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
-                            <input type="checkbox" id="select_item_${index}" onchange="updateMultiToOneSelection()">
+                            <input type="checkbox" id="select_item_${index}" onchange="updateMultiToOneSelection()" ${isPacked ? 'disabled' : ''}>
                         </td>
-                        <td style="padding: 10px; border: 1px solid #ddd;">${item.item_number}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${item.item_number}</td>
                         <td style="padding: 10px; border: 1px solid #ddd;">${item.description}</td>
-                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-weight: bold;">${qtyToPack}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; color: #666;">${item.color || 'N/A'}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-weight: bold; color: #007bff;">${qtyToPack}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center; color: ${statusColor}; font-weight: bold;">${statusText}</td>
                     </tr>
                 `;
             });
@@ -5161,18 +5505,43 @@ HTML_TEMPLATE = """
                         </table>
                     </div>
 
-                    <div style="margin-top: 20px; padding: 15px; background: #fff; border-radius: 4px; border: 1px solid #ddd;">
-                        <h5>Carton Weight:</h5>
-                        <input type="number" id="carton_weight" placeholder="Enter actual weight (kg)"
-                               style="width: 200px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" step="0.1">
+                    <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #ddd;">
+                        <h5 style="margin-bottom: 15px; color: #333;">📦 Carton Details</h5>
+                        <div style="display: flex; gap: 20px; align-items: end; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <label for="carton_size_select" style="display: block; margin-bottom: 8px; font-weight: bold;">Carton Size:</label>
+                                <select id="carton_size_select" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                                    <option value="Small">Small (30x20x15 cm)</option>
+                                    <option value="Medium" selected>Medium (40x30x20 cm)</option>
+                                    <option value="Large">Large (50x40x30 cm)</option>
+                                    <option value="Extra Large">Extra Large (60x50x40 cm)</option>
+                                    <option value="Custom">Custom Size</option>
+                                </select>
+                            </div>
+                            <div style="flex: 1; min-width: 150px;">
+                                <label for="carton_weight" style="display: block; margin-bottom: 8px; font-weight: bold;">Weight (kg):</label>
+                                <input type="number" id="carton_weight" placeholder="Enter weight" step="0.1" min="0"
+                                       style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                            </div>
+                            <div style="flex: 0;">
+                                <button onclick="createMultiToOneCarton()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                                    📦 Create Carton
+                                </button>
+                            </div>
+                        </div>
                     </div>
+
+                    <div id="multi_to_one_feedback" style="margin-top: 15px;"></div>
 
                     <div style="margin-top: 20px; text-align: center;">
                         <button onclick="goToPOStep(5)" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-right: 10px;">
                             ← Back to Packing Logic
                         </button>
-                        <button onclick="createMultiToOneCarton()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
-                            📦 Create Carton →
+                        <button onclick="viewCreatedCartons()" style="padding: 12px 24px; background: #17a2b8; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-right: 10px;">
+                            📦 View Created Cartons
+                        </button>
+                        <button onclick="goToPOStep(7)" style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                            Continue to Summary →
                         </button>
                     </div>
                 </div>
@@ -5300,17 +5669,34 @@ HTML_TEMPLATE = """
             }
         }
 
-        // Global variable to store created cartons
-        let createdCartons = [];
+        // Enhanced carton creation functions
 
         function createMultiToOneCarton() {
             console.log('🔧 Creating multi-to-one carton...');
 
-            const checkboxes = document.querySelectorAll('[id^="select_item_"]');
+            // Prevent multiple clicks
+            const button = event.target;
+            if (button.disabled) return;
+            button.disabled = true;
+            button.innerHTML = '⏳ Creating...';
+
+            const feedbackDiv = document.getElementById('multi_to_one_feedback');
+            feedbackDiv.innerHTML = '<div style="color: #007bff; padding: 10px; background: #e3f2fd; border-radius: 5px;">⏳ Creating carton...</div>';
+
+            const checkboxes = document.querySelectorAll('[id^="select_item_"]:not([disabled])');
             const weight = parseFloat(document.getElementById('carton_weight').value);
+            const cartonSize = document.getElementById('carton_size_select').value;
 
             console.log('📦 Found checkboxes:', checkboxes.length);
             console.log('⚖️ Weight:', weight);
+            console.log('📏 Size:', cartonSize);
+
+            if (!weight || weight <= 0) {
+                feedbackDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please enter a valid carton weight</div>';
+                button.disabled = false;
+                button.innerHTML = '📦 Create Carton';
+                return;
+            }
 
             let selectedItems = [];
             checkboxes.forEach((cb, index) => {
@@ -5319,7 +5705,9 @@ HTML_TEMPLATE = """
                     selectedItems.push({
                         item_number: item.item_number,
                         description: item.description,
-                        packed_qty: item.finished_qty || item.qty
+                        color: item.color || '',
+                        packed_qty: item.finished_qty || item.qty,
+                        original_qty: item.qty
                     });
                     console.log('✅ Selected item:', item.item_number, 'qty:', item.finished_qty || item.qty);
                 }
@@ -5328,34 +5716,29 @@ HTML_TEMPLATE = """
             console.log('📋 Selected items:', selectedItems);
 
             if (selectedItems.length === 0) {
-                showError('Please select at least one item to pack');
+                feedbackDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please select at least one item to pack</div>';
+                button.disabled = false;
+                button.innerHTML = '📦 Create Carton';
                 return;
             }
 
-            if (!weight || weight <= 0) {
-                showError('Please enter a valid carton weight');
-                return;
-            }
-
-            // Create carton data
+            // Create carton data with enhanced tracking
             const cartonData = {
-                size: 'Standard', // Will be configurable later
+                size: cartonSize,
                 weight: weight,
                 items: selectedItems
             };
 
             console.log('📦 Carton data to send:', cartonData);
 
-            // Show loading message
-            showInfo('📦 Creating carton...');
-
-            // Call API to create carton
+            // Call API to create carton with enhanced tracking
             fetch('/api/po_management/create_cartons', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     po_number: currentPOData.po_number,
-                    cartons: [cartonData]
+                    cartons: [cartonData],
+                    packing_option: 'A'
                 })
             })
             .then(response => {
@@ -5366,16 +5749,31 @@ HTML_TEMPLATE = """
                 console.log('📊 API Response data:', data);
                 if (data.success) {
                     createdCartons.push(...data.cartons);
-                    showSuccess(`✅ Carton created successfully! Barcode: ${data.cartons[0].barcode}`);
-                    displayCartonSummary();
-                    goToPOStep(7);
+                    feedbackDiv.innerHTML = `<div style="color: #28a745; padding: 15px; background: #d4edda; border-radius: 5px; border-left: 4px solid #28a745;">✅ Carton created successfully!<br><strong>Barcode:</strong> ${data.cartons[0].barcode}<br><strong>Items packed:</strong> ${selectedItems.length}</div>`;
+
+                    // Clear selections and refresh interface
+                    checkboxes.forEach(cb => {
+                        if (cb.checked) cb.checked = false;
+                    });
+                    document.getElementById('carton_weight').value = '';
+
+                    // Refresh the interface to show packed status
+                    setTimeout(() => {
+                        showMultiToOnePackingInterface();
+                        feedbackDiv.innerHTML = `<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ Ready to pack more items</div>`;
+                    }, 2000);
+
                 } else {
-                    showError(`❌ ${data.message}`);
+                    feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ${data.message}</div>`;
                 }
+                button.disabled = false;
+                button.innerHTML = '📦 Create Carton';
             })
             .catch(error => {
-                console.error('❌ API Error:', error);
-                showError(`❌ Error creating carton: ${error.message}`);
+                console.error('❌ Error creating carton:', error);
+                feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error creating carton: ${error.message}</div>`;
+                button.disabled = false;
+                button.innerHTML = '📦 Create Carton';
             });
         }
 
@@ -5408,18 +5806,21 @@ HTML_TEMPLATE = """
                     items: [{
                         item_number: item.item_number,
                         description: item.description,
-                        packed_qty: qty
+                        color: item.color || '',
+                        packed_qty: qty,
+                        original_qty: item.qty
                     }]
                 });
             }
 
-            // Call API to create cartons
+            // Call API to create cartons with enhanced tracking
             fetch('/api/po_management/create_cartons', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     po_number: currentPOData.po_number,
-                    cartons: cartonsData
+                    cartons: cartonsData,
+                    packing_option: 'B'
                 })
             })
             .then(response => response.json())
@@ -5428,6 +5829,7 @@ HTML_TEMPLATE = """
                     createdCartons.push(...data.cartons);
                     showSuccess(`✅ ${cartonCount} cartons created successfully!`);
                     displayCartonSummary();
+                    updateWizardProgress(7);
                     goToPOStep(7);
                 } else {
                     showError(`❌ ${data.message}`);
@@ -5442,18 +5844,29 @@ HTML_TEMPLATE = """
             const container = document.getElementById('carton_summary_container');
 
             let html = `
-                <div style="background: #d4edda; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #28a745;">
-                    <h4>📦 Created Cartons Summary</h4>
-                    <p>Total cartons: ${createdCartons.length}</p>
+                <div style="background: #d4edda; padding: 25px; border-radius: 12px; margin: 20px 0; border: 1px solid #28a745; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h4 style="color: #155724; margin-bottom: 15px;">📦 Carton Summary & Barcodes</h4>
+                    <div style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                        <div style="background: white; padding: 15px; border-radius: 8px; flex: 1; min-width: 200px;">
+                            <strong>Total Cartons:</strong> ${createdCartons.length}
+                        </div>
+                        <div style="background: white; padding: 15px; border-radius: 8px; flex: 1; min-width: 200px;">
+                            <strong>PO Number:</strong> ${currentPOData.po_number}
+                        </div>
+                        <div style="background: white; padding: 15px; border-radius: 8px; flex: 1; min-width: 200px;">
+                            <strong>Packing Option:</strong> ${currentPackingLogic === 'multi_to_one' ? 'Option A' : 'Option B'}
+                        </div>
+                    </div>
 
                     <div style="overflow-x: auto; margin-top: 15px;">
-                        <table style="width: 100%; border-collapse: collapse;">
+                        <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden;">
                             <thead>
-                                <tr style="background: #f8f9fa;">
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Carton #</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Barcode</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Items</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Total Qty</th>
+                                <tr style="background: #28a745; color: white;">
+                                    <th style="padding: 12px; border: 1px solid #ddd;">Carton #</th>
+                                    <th style="padding: 12px; border: 1px solid #ddd;">Barcode</th>
+                                    <th style="padding: 12px; border: 1px solid #ddd;">Weight (kg)</th>
+                                    <th style="padding: 12px; border: 1px solid #ddd;">Items</th>
+                                    <th style="padding: 12px; border: 1px solid #ddd;">Total Qty</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -5464,11 +5877,12 @@ HTML_TEMPLATE = """
                 const itemsList = carton.items.map(item => `${item.item_number} (${item.packed_qty})`).join(', ');
 
                 html += `
-                    <tr>
-                        <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${carton.carton_number}</td>
-                        <td style="padding: 10px; border: 1px solid #ddd; font-family: monospace; font-size: 12px;">${carton.barcode}</td>
-                        <td style="padding: 10px; border: 1px solid #ddd;">${itemsList}</td>
-                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-weight: bold;">${totalQty}</td>
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="padding: 12px; border: 1px solid #ddd; font-weight: bold; color: #007bff;">${carton.carton_number}</td>
+                        <td style="padding: 12px; border: 1px solid #ddd; font-family: monospace; font-size: 11px; background: #f8f9fa;">${carton.barcode}</td>
+                        <td style="padding: 12px; border: 1px solid #ddd; text-align: center; font-weight: bold;">${carton.weight || 0}</td>
+                        <td style="padding: 12px; border: 1px solid #ddd; font-size: 13px;">${itemsList}</td>
+                        <td style="padding: 12px; border: 1px solid #ddd; text-align: right; font-weight: bold; color: #28a745;">${totalQty}</td>
                     </tr>
                 `;
             });
@@ -5496,6 +5910,9 @@ HTML_TEMPLATE = """
                 return;
             }
 
+            updateWizardProgress(8);
+            showInfo('🚚 Creating shipment...');
+
             const cartonIds = createdCartons.map(carton => carton.id);
 
             fetch('/api/po_management/create_shipment', {
@@ -5511,8 +5928,9 @@ HTML_TEMPLATE = """
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    showSuccess('🚚 Shipment created successfully!');
-                    displayFinalSummary(courier, awbNumber);
+                    showSuccess(`🚚 Shipment created successfully! Total: ${data.total_cartons} cartons, ${data.total_weight}kg`);
+                    displayFinalSummary(courier, awbNumber, data);
+                    updateWizardProgress(9);
                     goToPOStep(9);
                 } else {
                     showError(`❌ ${data.message}`);
@@ -5523,28 +5941,47 @@ HTML_TEMPLATE = """
             });
         }
 
-        function displayFinalSummary(courier, awbNumber) {
+        function displayFinalSummary(courier, awbNumber, shipmentData) {
             const container = document.getElementById('final_summary_container');
             const totalItems = createdCartons.reduce((sum, carton) =>
                 sum + carton.items.reduce((itemSum, item) => itemSum + item.packed_qty, 0), 0);
+            const totalWeight = shipmentData ? shipmentData.total_weight : 0;
 
             let html = `
-                <div style="background: #d1ecf1; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #17a2b8;">
-                    <h4>🎉 Packing Complete!</h4>
+                <div style="background: linear-gradient(135deg, #d1ecf1 0%, #e8f5e8 100%); padding: 30px; border-radius: 15px; margin: 20px 0; border: 2px solid #17a2b8; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                    <div style="text-align: center; margin-bottom: 25px;">
+                        <h3 style="color: #0c5460; margin: 0;">🎉 Packing List Complete!</h3>
+                        <p style="color: #0c5460; margin: 5px 0; font-size: 16px;">All items packed and ready for shipment</p>
+                    </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
-                        <div>
-                            <h5>📋 PO Details:</h5>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 25px 0;">
+                        <div style="background: white; padding: 20px; border-radius: 10px; border-left: 4px solid #007bff;">
+                            <h5 style="color: #007bff; margin-bottom: 15px;">📋 PO Summary</h5>
                             <p><strong>PO Number:</strong> ${currentPOData.po_number}</p>
                             <p><strong>Total Items:</strong> ${totalItems} pieces</p>
-                            <p><strong>Total Cartons:</strong> ${createdCartons.length}</p>
+                            <p><strong>Completion:</strong> ${currentCompletionStatus === 'all' ? 'Complete' : 'Partial'}</p>
+                            <p><strong>Packing Method:</strong> ${currentPackingLogic === 'multi_to_one' ? 'Option A (Multi→1)' : 'Option B (1→Multi)'}</p>
                         </div>
-                        <div>
-                            <h5>🚚 Shipment Details:</h5>
+                        <div style="background: white; padding: 20px; border-radius: 10px; border-left: 4px solid #28a745;">
+                            <h5 style="color: #28a745; margin-bottom: 15px;">📦 Carton Summary</h5>
+                            <p><strong>Total Cartons:</strong> ${createdCartons.length}</p>
+                            <p><strong>Total Weight:</strong> ${totalWeight}kg</p>
+                            <p><strong>Barcodes:</strong> Generated</p>
+                            <p><strong>Status:</strong> Ready to Ship</p>
+                        </div>
+                        <div style="background: white; padding: 20px; border-radius: 10px; border-left: 4px solid #ffc107;">
+                            <h5 style="color: #856404; margin-bottom: 15px;">🚚 Shipment Details</h5>
                             <p><strong>Courier:</strong> ${courier}</p>
                             <p><strong>AWB Number:</strong> ${awbNumber}</p>
-                            <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+                            <p><strong>Ship Date:</strong> ${new Date().toLocaleDateString()}</p>
+                            <p><strong>Status:</strong> Confirmed</p>
                         </div>
+                    </div>
+
+                    <div style="text-align: center; margin-top: 25px; padding: 20px; background: rgba(255,255,255,0.7); border-radius: 10px;">
+                        <p style="color: #0c5460; font-size: 14px; margin: 0;">
+                            ✅ All steps completed successfully! Your packing list is ready for download.
+                        </p>
                     </div>
                 </div>
             `;
@@ -5553,7 +5990,159 @@ HTML_TEMPLATE = """
         }
 
         function downloadPackingList() {
-            showInfo('📄 Packing list download feature coming soon!');
+            showInfo('📄 Generating packing list...');
+
+            fetch('/api/po_management/generate_packing_list', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    po_number: currentPOData.po_number
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Create downloadable content
+                    const packingListContent = generatePackingListHTML(data.packing_list);
+                    const blob = new Blob([packingListContent], { type: 'text/html' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `PackingList_${currentPOData.po_number}_${new Date().toISOString().split('T')[0]}.html`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    showSuccess('📄 Packing list downloaded successfully!');
+                } else {
+                    showError(`❌ ${data.message}`);
+                }
+            })
+            .catch(error => {
+                showError(`❌ Error generating packing list: ${error.message}`);
+            });
+        }
+
+        function generatePackingListHTML(packingList) {
+            return `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Packing List - PO ${packingList.po_number}</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 20px; }
+                        .header { text-align: center; margin-bottom: 30px; }
+                        .summary { display: flex; gap: 20px; margin-bottom: 30px; }
+                        .summary div { flex: 1; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+                        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                        th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+                        th { background: #f5f5f5; }
+                        .barcode { font-family: monospace; font-size: 12px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h1>PACKING LIST</h1>
+                        <h2>PO Number: ${packingList.po_number}</h2>
+                        <p>Generated: ${packingList.generated_at}</p>
+                    </div>
+
+                    <div class="summary">
+                        <div>
+                            <h3>Shipment Details</h3>
+                            <p><strong>Courier:</strong> ${packingList.shipment ? packingList.shipment[0] : 'N/A'}</p>
+                            <p><strong>AWB:</strong> ${packingList.shipment ? packingList.shipment[1] : 'N/A'}</p>
+                            <p><strong>Total Cartons:</strong> ${packingList.shipment ? packingList.shipment[3] : 'N/A'}</p>
+                            <p><strong>Total Weight:</strong> ${packingList.shipment ? packingList.shipment[4] : 'N/A'}kg</p>
+                        </div>
+                    </div>
+
+                    <h3>Carton Details</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Carton #</th>
+                                <th>Barcode</th>
+                                <th>Weight</th>
+                                <th>Item #</th>
+                                <th>Description</th>
+                                <th>Color</th>
+                                <th>Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${packingList.packing_data.map(row => `
+                                <tr>
+                                    <td>${row[0]}</td>
+                                    <td class="barcode">${row[1]}</td>
+                                    <td>${row[2]}kg</td>
+                                    <td>${row[4]}</td>
+                                    <td>${row[5]}</td>
+                                    <td>${row[6]}</td>
+                                    <td>${row[7]}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </body>
+                </html>
+            `;
+        }
+
+        function viewCreatedCartons() {
+            if (createdCartons.length === 0) {
+                showInfo('📦 No cartons created yet. Create some cartons first!');
+                return;
+            }
+
+            const feedbackDiv = document.getElementById('multi_to_one_feedback');
+            let html = `
+                <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #28a745;">
+                    <h4 style="color: #155724; margin-bottom: 15px;">📦 Created Cartons (${createdCartons.length})</h4>
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden;">
+                            <thead>
+                                <tr style="background: #28a745; color: white;">
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Carton #</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Barcode</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Size</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Weight</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Items</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd;">Total Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+
+            createdCartons.forEach(carton => {
+                const totalQty = carton.items.reduce((sum, item) => sum + item.packed_qty, 0);
+                const itemsList = carton.items.map(item => `${item.item_number} (${item.packed_qty})`).join(', ');
+
+                html += `
+                    <tr style="border-bottom: 1px solid #ddd;">
+                        <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold; color: #007bff;">${carton.carton_number}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; font-family: monospace; font-size: 11px; background: #f8f9fa;">${carton.barcode}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">${carton.size || 'Standard'}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center; font-weight: bold;">${carton.weight || 0}kg</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; font-size: 12px;">${itemsList}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-weight: bold; color: #28a745;">${totalQty}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top: 15px; text-align: center;">
+                        <button onclick="showMultiToOnePackingInterface()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                            ← Back to Packing
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            feedbackDiv.innerHTML = html;
         }
 
         function resetPOManagement() {
@@ -5562,14 +6151,18 @@ HTML_TEMPLATE = """
             currentCompletionStatus = null;
             currentPackingLogic = null;
             createdCartons = [];
+            currentStep = 1;
 
             // Clear all inputs
             document.getElementById('po_management_input').value = '';
             document.getElementById('po_management_status').style.display = 'none';
 
+            // Reset wizard progress
+            updateWizardProgress(1);
+
             // Go back to step 1
             goToPOStep(1);
-            showInfo('🔄 Ready for new PO management');
+            showSuccess('🔄 Ready for new PO management - All data cleared');
         }
 
 
