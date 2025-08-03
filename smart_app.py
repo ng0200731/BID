@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.7.0"
-VERSION_DATE = "2025-08-03 14:00"
-LAST_EDIT = "Added comprehensive Report tab with 27-column master data view"
+VERSION = "1.7.2"
+VERSION_DATE = "2025-08-03 14:30"
+LAST_EDIT = "Fixed Report tab table formatting and layout distortion"
 
 
 
@@ -1010,10 +1010,10 @@ def get_po_data(po_number):
 @app.route('/')
 def index():
     masked_username = mask_email(config['username'])
-    # NUCLEAR cache busting - multiple timestamps
+    # NUCLEAR cache busting - multiple timestamps + version
     import time
     import random
-    cache_buster = f"{int(time.time())}-{random.randint(1000,9999)}"
+    cache_buster = f"{VERSION}-{int(time.time())}-{random.randint(1000,9999)}"
 
     response = app.response_class(
         render_template_string(HTML_TEMPLATE, version=VERSION, version_date=VERSION_DATE, last_edit=LAST_EDIT, masked_username=masked_username, cache_buster=cache_buster),
@@ -2722,83 +2722,83 @@ HTML_TEMPLATE = """
 
                 <!-- Master Report Table Container -->
                 <div id="master_report_container" style="display: none;">
-                    <!-- Table Wrapper with Horizontal Scroll -->
-                    <div style="overflow-x: auto; border: 1px solid #ddd; border-radius: 8px; background: white;">
-                        <table id="master_report_table" style="width: 100%; min-width: 2000px; border-collapse: collapse;">
+                    <!-- Table Wrapper with Horizontal Scroll and Fixed Header -->
+                    <div style="overflow: auto; border: 1px solid #ddd; border-radius: 8px; background: white; max-height: 600px; position: relative;">
+                        <table id="master_report_table" style="width: 100%; table-layout: fixed; border-collapse: collapse;">
                             <!-- Table Header with Search Inputs -->
-                            <thead style="background: #f8f9fa; position: sticky; top: 0; z-index: 10;">
+                            <thead style="background: #f8f9fa; position: sticky; top: 0; z-index: 100;">
                                 <!-- Column Headers -->
                                 <tr style="border-bottom: 2px solid #dee2e6;">
                                     <!-- Fixed Columns -->
-                                    <th style="position: sticky; left: 0; background: #e9ecef; z-index: 11; padding: 12px 8px; border-right: 2px solid #adb5bd; min-width: 100px; font-weight: 600;">PO#</th>
-                                    <th style="position: sticky; left: 100px; background: #e9ecef; z-index: 11; padding: 12px 8px; border-right: 2px solid #adb5bd; min-width: 120px; font-weight: 600;">Item #</th>
-                                    <th style="position: sticky; left: 220px; background: #e9ecef; z-index: 11; padding: 12px 8px; border-right: 2px solid #adb5bd; min-width: 200px; font-weight: 600;">Description</th>
+                                    <th style="position: sticky; left: 0; background: #e9ecef; z-index: 101; padding: 12px 8px; border-right: 2px solid #adb5bd; width: 120px; font-weight: 600;">PO#</th>
+                                    <th style="position: sticky; left: 120px; background: #e9ecef; z-index: 101; padding: 12px 8px; border-right: 2px solid #adb5bd; width: 140px; font-weight: 600;">Item #</th>
+                                    <th style="position: sticky; left: 260px; background: #e9ecef; z-index: 101; padding: 12px 8px; border-right: 2px solid #adb5bd; width: 250px; font-weight: 600;">Description</th>
 
                                     <!-- Scrollable Columns -->
-                                    <th style="padding: 12px 8px; min-width: 80px; font-weight: 600;">Color</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Ship To</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Need By</th>
-                                    <th style="padding: 12px 8px; min-width: 80px; font-weight: 600;">Qty</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Bundle Qty</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Unit Price</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Extension</th>
-                                    <th style="padding: 12px 8px; min-width: 120px; font-weight: 600;">Company</th>
-                                    <th style="padding: 12px 8px; min-width: 120px; font-weight: 600;">Purchase From</th>
-                                    <th style="padding: 12px 8px; min-width: 80px; font-weight: 600;">Currency</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">PO Date</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Cancel Date</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Ship By</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Ship Via</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Order Type</th>
-                                    <th style="padding: 12px 8px; min-width: 80px; font-weight: 600;">Status</th>
-                                    <th style="padding: 12px 8px; min-width: 120px; font-weight: 600;">Factory</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Location</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Prod Rep</th>
-                                    <th style="padding: 12px 8px; min-width: 150px; font-weight: 600;">Ship To Address</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Terms</th>
-                                    <th style="padding: 12px 8px; min-width: 130px; font-weight: 600;">First Created</th>
-                                    <th style="padding: 12px 8px; min-width: 130px; font-weight: 600;">Last Updated</th>
-                                    <th style="padding: 12px 8px; min-width: 100px; font-weight: 600;">Update Count</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 120px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Color</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 140px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Ship To</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 120px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Need By</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 100px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Qty</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 120px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Bundle Qty</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 120px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Unit Price</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 120px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Extension</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 150px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Company</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 160px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Purchase From</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 100px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Currency</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 120px; font-weight: 600; border-bottom: 2px solid #dee2e6;">PO Date</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 130px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Cancel Date</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 120px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Ship By</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 140px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Ship Via</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 130px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Order Type</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 100px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Status</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 150px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Factory</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 120px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Location</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 130px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Prod Rep</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 200px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Ship To Address</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 130px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Terms</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 150px; font-weight: 600; border-bottom: 2px solid #dee2e6;">First Created</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 150px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Last Updated</th>
+                                    <th style="position: sticky; top: 0; background: #f8f9fa; z-index: 100; padding: 12px 8px; width: 120px; font-weight: 600; border-bottom: 2px solid #dee2e6;">Update Count</th>
                                 </tr>
 
                                 <!-- Search Input Row -->
-                                <tr style="border-bottom: 1px solid #dee2e6;">
+                                <tr style="border-bottom: 1px solid #dee2e6; position: sticky; top: 42px; z-index: 99; background: #f8f9fa;">
                                     <!-- Fixed Column Search Inputs -->
-                                    <th style="position: sticky; left: 0; background: #f8f9fa; z-index: 11; padding: 8px; border-right: 2px solid #adb5bd;">
-                                        <input type="text" id="search_po_number" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
+                                    <th style="position: sticky; left: 0; background: #f8f9fa; z-index: 101; padding: 8px; border-right: 2px solid #adb5bd; width: 120px;">
+                                        <input type="text" id="search_po_number" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
                                     </th>
-                                    <th style="position: sticky; left: 100px; background: #f8f9fa; z-index: 11; padding: 8px; border-right: 2px solid #adb5bd;">
-                                        <input type="text" id="search_item_number" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
+                                    <th style="position: sticky; left: 120px; background: #f8f9fa; z-index: 101; padding: 8px; border-right: 2px solid #adb5bd; width: 140px;">
+                                        <input type="text" id="search_item_number" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
                                     </th>
-                                    <th style="position: sticky; left: 220px; background: #f8f9fa; z-index: 11; padding: 8px; border-right: 2px solid #adb5bd;">
-                                        <input type="text" id="search_description" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
+                                    <th style="position: sticky; left: 260px; background: #f8f9fa; z-index: 101; padding: 8px; border-right: 2px solid #adb5bd; width: 250px;">
+                                        <input type="text" id="search_description" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
                                     </th>
 
                                     <!-- Scrollable Column Search Inputs -->
-                                    <th style="padding: 8px;"><input type="text" id="search_color" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_ship_to" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_need_by" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_qty" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_bundle_qty" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_unit_price" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_extension" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_company" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_purchase_from" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_currency" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_po_date" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_cancel_date" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_ship_by" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_ship_via" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_order_type" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_status" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_factory" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_location" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_prod_rep" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_ship_to_address" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_terms" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_first_created" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_last_updated" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="padding: 8px;"><input type="text" id="search_update_count" placeholder="🔍" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_color" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 140px;"><input type="text" id="search_ship_to" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_need_by" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 100px;"><input type="text" id="search_qty" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_bundle_qty" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_unit_price" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_extension" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_company" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 160px;"><input type="text" id="search_purchase_from" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 100px;"><input type="text" id="search_currency" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_po_date" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_cancel_date" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_ship_by" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 140px;"><input type="text" id="search_ship_via" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_order_type" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 100px;"><input type="text" id="search_status" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_factory" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_location" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_prod_rep" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 200px;"><input type="text" id="search_ship_to_address" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_terms" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_first_created" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_last_updated" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_update_count" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
                                 </tr>
                             </thead>
 
@@ -4104,35 +4104,35 @@ HTML_TEMPLATE = """
 
                 tr.innerHTML = `
                     <!-- Fixed Columns -->
-                    <td style="position: sticky; left: 0; background: ${index % 2 === 1 ? '#f8f9fa' : 'white'}; z-index: 5; padding: 8px; border-right: 2px solid #adb5bd; font-weight: 500;">${row.po_number || ''}</td>
-                    <td style="position: sticky; left: 100px; background: ${index % 2 === 1 ? '#f8f9fa' : 'white'}; z-index: 5; padding: 8px; border-right: 2px solid #adb5bd; font-weight: 500;">${row.item_number || ''}</td>
-                    <td style="position: sticky; left: 220px; background: ${index % 2 === 1 ? '#f8f9fa' : 'white'}; z-index: 5; padding: 8px; border-right: 2px solid #adb5bd; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${row.description || ''}">${row.description || ''}</td>
+                    <td style="position: sticky; left: 0; background: ${index % 2 === 1 ? '#f8f9fa' : 'white'}; z-index: 5; padding: 8px; border-right: 2px solid #adb5bd; font-weight: 500; width: 120px; vertical-align: top;" title="${row.po_number || ''}">${row.po_number || ''}</td>
+                    <td style="position: sticky; left: 120px; background: ${index % 2 === 1 ? '#f8f9fa' : 'white'}; z-index: 5; padding: 8px; border-right: 2px solid #adb5bd; font-weight: 500; width: 140px; vertical-align: top;" title="${row.item_number || ''}">${row.item_number || ''}</td>
+                    <td style="position: sticky; left: 260px; background: ${index % 2 === 1 ? '#f8f9fa' : 'white'}; z-index: 5; padding: 8px; border-right: 2px solid #adb5bd; width: 250px; vertical-align: top;" title="${row.description || ''}">${row.description || ''}</td>
 
                     <!-- Scrollable Columns -->
-                    <td style="padding: 8px;">${row.color || ''}</td>
-                    <td style="padding: 8px;">${row.ship_to || ''}</td>
-                    <td style="padding: 8px;">${row.need_by || ''}</td>
-                    <td style="padding: 8px; text-align: right;">${row.qty || ''}</td>
-                    <td style="padding: 8px; text-align: right;">${row.bundle_qty || ''}</td>
-                    <td style="padding: 8px; text-align: right;">${row.unit_price || ''}</td>
-                    <td style="padding: 8px; text-align: right;">${row.extension || ''}</td>
-                    <td style="padding: 8px;">${row.company || ''}</td>
-                    <td style="padding: 8px;">${row.purchase_from || ''}</td>
-                    <td style="padding: 8px;">${row.currency || ''}</td>
-                    <td style="padding: 8px;">${row.po_date || ''}</td>
-                    <td style="padding: 8px;">${row.cancel_date || ''}</td>
-                    <td style="padding: 8px;">${row.ship_by || ''}</td>
-                    <td style="padding: 8px;">${row.ship_via || ''}</td>
-                    <td style="padding: 8px;">${row.order_type || ''}</td>
-                    <td style="padding: 8px;">${row.status || ''}</td>
-                    <td style="padding: 8px;">${row.factory || ''}</td>
-                    <td style="padding: 8px;">${row.location || ''}</td>
-                    <td style="padding: 8px;">${row.prod_rep || ''}</td>
-                    <td style="padding: 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${row.ship_to_address || ''}">${row.ship_to_address || ''}</td>
-                    <td style="padding: 8px;">${row.terms || ''}</td>
-                    <td style="padding: 8px; font-size: 0.8em; color: #666;">${row.first_created || ''}</td>
-                    <td style="padding: 8px; font-size: 0.8em; color: #666;">${row.last_updated || ''}</td>
-                    <td style="padding: 8px; text-align: center;">${row.update_count || '0'}</td>
+                    <td style="padding: 8px; width: 120px; vertical-align: top;" title="${row.color || ''}">${row.color || ''}</td>
+                    <td style="padding: 8px; width: 140px; vertical-align: top;" title="${row.ship_to || ''}">${row.ship_to || ''}</td>
+                    <td style="padding: 8px; width: 120px; vertical-align: top;" title="${row.need_by || ''}">${row.need_by || ''}</td>
+                    <td style="padding: 8px; text-align: right; width: 100px; vertical-align: top;" title="${row.qty || ''}">${row.qty || ''}</td>
+                    <td style="padding: 8px; text-align: right; width: 120px; vertical-align: top;" title="${row.bundle_qty || ''}">${row.bundle_qty || ''}</td>
+                    <td style="padding: 8px; text-align: right; width: 120px; vertical-align: top;" title="${row.unit_price || ''}">${row.unit_price || ''}</td>
+                    <td style="padding: 8px; text-align: right; width: 120px; vertical-align: top;" title="${row.extension || ''}">${row.extension || ''}</td>
+                    <td style="padding: 8px; width: 150px; vertical-align: top;" title="${row.company || ''}">${row.company || ''}</td>
+                    <td style="padding: 8px; width: 160px; vertical-align: top;" title="${row.purchase_from || ''}">${row.purchase_from || ''}</td>
+                    <td style="padding: 8px; width: 100px; vertical-align: top;" title="${row.currency || ''}">${row.currency || ''}</td>
+                    <td style="padding: 8px; width: 120px; vertical-align: top;" title="${row.po_date || ''}">${row.po_date || ''}</td>
+                    <td style="padding: 8px; width: 130px; vertical-align: top;" title="${row.cancel_date || ''}">${row.cancel_date || ''}</td>
+                    <td style="padding: 8px; width: 120px; vertical-align: top;" title="${row.ship_by || ''}">${row.ship_by || ''}</td>
+                    <td style="padding: 8px; width: 140px; vertical-align: top;" title="${row.ship_via || ''}">${row.ship_via || ''}</td>
+                    <td style="padding: 8px; width: 130px; vertical-align: top;" title="${row.order_type || ''}">${row.order_type || ''}</td>
+                    <td style="padding: 8px; width: 100px; vertical-align: top;" title="${row.status || ''}">${row.status || ''}</td>
+                    <td style="padding: 8px; width: 150px; vertical-align: top;" title="${row.factory || ''}">${row.factory || ''}</td>
+                    <td style="padding: 8px; width: 120px; vertical-align: top;" title="${row.location || ''}">${row.location || ''}</td>
+                    <td style="padding: 8px; width: 130px; vertical-align: top;" title="${row.prod_rep || ''}">${row.prod_rep || ''}</td>
+                    <td style="padding: 8px; width: 200px; vertical-align: top;" title="${row.ship_to_address || ''}">${row.ship_to_address || ''}</td>
+                    <td style="padding: 8px; width: 130px; vertical-align: top;" title="${row.terms || ''}">${row.terms || ''}</td>
+                    <td style="padding: 8px; font-size: 0.8em; color: #666; width: 150px; vertical-align: top;" title="${row.first_created || ''}">${row.first_created || ''}</td>
+                    <td style="padding: 8px; font-size: 0.8em; color: #666; width: 150px; vertical-align: top;" title="${row.last_updated || ''}">${row.last_updated || ''}</td>
+                    <td style="padding: 8px; text-align: center; width: 120px; vertical-align: top;" title="${row.update_count || '0'}">${row.update_count || '0'}</td>
                 `;
 
                 tbody.appendChild(tr);
