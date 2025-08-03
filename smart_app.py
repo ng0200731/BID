@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.8.5"
-VERSION_DATE = "2025-08-03 16:30"
-LAST_EDIT = "Fixed missing showInfo/showSuccess functions - carton creation should work now"
+VERSION = "1.5.0"
+VERSION_DATE = "2025-08-03 17:00"
+LAST_EDIT = "Checkpoint 15 - Basic carton creation functionality restored"
 
 from flask import Flask, render_template_string, request, jsonify
 import os
