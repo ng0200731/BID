@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.7.2"
-VERSION_DATE = "2025-08-03 14:30"
-LAST_EDIT = "Fixed Report tab table formatting and layout distortion"
+VERSION = "1.7.3"
+VERSION_DATE = "2025-08-03 14:35"
+LAST_EDIT = "Reduced Report tab table height to 300px (half of previous height)"
 
 
 
@@ -2723,7 +2723,7 @@ HTML_TEMPLATE = """
                 <!-- Master Report Table Container -->
                 <div id="master_report_container" style="display: none;">
                     <!-- Table Wrapper with Horizontal Scroll and Fixed Header -->
-                    <div style="overflow: auto; border: 1px solid #ddd; border-radius: 8px; background: white; max-height: 600px; position: relative;">
+                    <div style="overflow: auto; border: 1px solid #ddd; border-radius: 8px; background: white; max-height: 300px; position: relative;">
                         <table id="master_report_table" style="width: 100%; table-layout: fixed; border-collapse: collapse;">
                             <!-- Table Header with Search Inputs -->
                             <thead style="background: #f8f9fa; position: sticky; top: 0; z-index: 100;">
