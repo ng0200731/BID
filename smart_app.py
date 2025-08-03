@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.4.5"
-VERSION_DATE = "2025-08-02 13:05"
-LAST_EDIT = "Fixed 'Analyzing PO data...' overlay to persist until analysis complete, not auto-hide"
+VERSION = "1.5.0"
+VERSION_DATE = "2025-08-02 13:10"
+LAST_EDIT = "Added PO tracking columns: first_created, last_updated, update_count with full database and UI integration"
 
 
 
@@ -148,6 +148,22 @@ def init_database():
     except sqlite3.OperationalError:
         pass
 
+    # Add tracking columns for PO update history
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN first_created TIMESTAMP')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN last_updated TIMESTAMP')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE po_headers ADD COLUMN update_count INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
     print("📊 Database initialized successfully")
@@ -162,40 +178,95 @@ def check_po_exists(po_number):
     return exists
 
 def save_po_to_database(po_number, po_header, po_items, overwrite=False):
-    """Save complete PO data to database"""
+    """Save complete PO data to database with tracking"""
+    from datetime import datetime
+
     conn = sqlite3.connect('po_database.db')
     cursor = conn.cursor()
 
     try:
-        if overwrite:
+        current_time = datetime.now().isoformat()
+
+        # Check if PO already exists
+        cursor.execute('SELECT first_created, update_count FROM po_headers WHERE po_number = ?', (po_number,))
+        existing_record = cursor.fetchone()
+
+        if existing_record and overwrite:
+            # PO exists and user confirmed overwrite
+            first_created_time = existing_record[0]  # Keep original first_created
+            current_update_count = existing_record[1] or 0  # Handle None values
+            new_update_count = current_update_count + 1
+
             # Delete existing records
             cursor.execute('DELETE FROM po_items WHERE po_number = ?', (po_number,))
             cursor.execute('DELETE FROM po_headers WHERE po_number = ?', (po_number,))
 
-        # Insert PO header with all fields
-        cursor.execute('''
-            INSERT INTO po_headers (
-                po_number, purchase_from, ship_to, company, currency, cancel_date,
-                factory, po_date, ship_by, ship_via, order_type, status, location, prod_rep, ship_to_address, terms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            po_number,
-            po_header.get('purchase_from', ''),
-            po_header.get('ship_to', ''),
-            po_header.get('company', ''),
-            po_header.get('currency', ''),
-            po_header.get('cancel_date', ''),
-            po_header.get('factory', ''),
-            po_header.get('po_date', ''),
-            po_header.get('ship_by', ''),
-            po_header.get('ship_via', ''),
-            po_header.get('order_type', ''),
-            po_header.get('status', ''),
-            po_header.get('location', ''),
-            po_header.get('prod_rep', ''),
-            po_header.get('ship_to_address', ''),
-            po_header.get('terms', '')
-        ))
+            # Insert updated PO header with tracking
+            cursor.execute('''
+                INSERT INTO po_headers (
+                    po_number, purchase_from, ship_to, company, currency, cancel_date,
+                    factory, po_date, ship_by, ship_via, order_type, status, location, prod_rep, ship_to_address, terms,
+                    first_created, last_updated, update_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                po_number,
+                po_header.get('purchase_from', ''),
+                po_header.get('ship_to', ''),
+                po_header.get('company', ''),
+                po_header.get('currency', ''),
+                po_header.get('cancel_date', ''),
+                po_header.get('factory', ''),
+                po_header.get('po_date', ''),
+                po_header.get('ship_by', ''),
+                po_header.get('ship_via', ''),
+                po_header.get('order_type', ''),
+                po_header.get('status', ''),
+                po_header.get('location', ''),
+                po_header.get('prod_rep', ''),
+                po_header.get('ship_to_address', ''),
+                po_header.get('terms', ''),
+                first_created_time,  # Keep original first_created
+                current_time,        # Set last_updated to now
+                new_update_count     # Increment update_count
+            ))
+
+            print(f"📊 PO {po_number} updated in database (Update #{new_update_count})")
+
+        elif not existing_record:
+            # New PO - first time saving
+            cursor.execute('''
+                INSERT INTO po_headers (
+                    po_number, purchase_from, ship_to, company, currency, cancel_date,
+                    factory, po_date, ship_by, ship_via, order_type, status, location, prod_rep, ship_to_address, terms,
+                    first_created, last_updated, update_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                po_number,
+                po_header.get('purchase_from', ''),
+                po_header.get('ship_to', ''),
+                po_header.get('company', ''),
+                po_header.get('currency', ''),
+                po_header.get('cancel_date', ''),
+                po_header.get('factory', ''),
+                po_header.get('po_date', ''),
+                po_header.get('ship_by', ''),
+                po_header.get('ship_via', ''),
+                po_header.get('order_type', ''),
+                po_header.get('status', ''),
+                po_header.get('location', ''),
+                po_header.get('prod_rep', ''),
+                po_header.get('ship_to_address', ''),
+                po_header.get('terms', ''),
+                current_time,  # Set first_created to now
+                None,          # last_updated is blank for new PO
+                0              # update_count starts at 0
+            ))
+
+            print(f"📊 PO {po_number} saved to database for first time")
+        else:
+            # PO exists but overwrite=False
+            print(f"⚠️ PO {po_number} already exists in database")
+            return False
 
         # Insert PO items
         for item in po_items:
@@ -207,7 +278,6 @@ def save_po_to_database(po_number, po_header, po_items, overwrite=False):
                   item.get('bundle_qty', ''), item.get('unit_price', ''), item.get('extension', '')))
 
         conn.commit()
-        print(f"📊 PO {po_number} saved to database successfully")
         return True
 
     except Exception as e:
@@ -1573,7 +1643,10 @@ def get_po_details(po_number):
             'location': header_row[15] if len(header_row) > 15 else None,     # Column 15
             'prod_rep': header_row[16] if len(header_row) > 16 else None,     # Column 16
             'ship_to_address': header_row[17] if len(header_row) > 17 else None, # Column 17
-            'terms': header_row[18] if len(header_row) > 18 else None         # Column 18
+            'terms': header_row[18] if len(header_row) > 18 else None,        # Column 18
+            'first_created': header_row[19] if len(header_row) > 19 else None,   # Column 19
+            'last_updated': header_row[20] if len(header_row) > 20 else None,    # Column 20
+            'update_count': header_row[21] if len(header_row) > 21 else 0        # Column 21
         }
 
         items = []
@@ -2134,6 +2207,25 @@ HTML_TEMPLATE = """
                 <!-- PO Details Section -->
                 <div id="delivery_info" class="hidden" style="margin-top: 20px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9;">
                     <h3>📋 Complete PO Details</h3>
+
+                    <!-- PO Tracking Information -->
+                    <div id="po_tracking_info" style="margin: 15px 0; padding: 15px; background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); border-radius: 8px; border-left: 4px solid #2196f3;">
+                        <h4 style="color: #1976d2; margin: 0 0 10px 0; font-size: 16px;">📊 Database Tracking Information</h4>
+                        <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+                            <div>
+                                <strong style="color: #666;">First Created:</strong>
+                                <span id="first_created_display" style="color: #333; margin-left: 8px;">-</span>
+                            </div>
+                            <div>
+                                <strong style="color: #666;">Last Updated:</strong>
+                                <span id="last_updated_display" style="color: #333; margin-left: 8px;">-</span>
+                            </div>
+                            <div>
+                                <strong style="color: #666;">Update Count:</strong>
+                                <span id="update_count_display" style="color: #333; margin-left: 8px; background: #e8f5e8; padding: 2px 8px; border-radius: 12px; font-weight: bold;">0</span>
+                            </div>
+                        </div>
+                    </div>
 
                     <!-- Side-by-Side Tables Container -->
                     <div style="display: flex; gap: 20px; margin: 20px 0;">
@@ -2846,6 +2938,28 @@ HTML_TEMPLATE = """
                     // Clear form
                     document.getElementById('new_delivery_date').value = '';
                     document.getElementById('delivery_notes').value = '';
+
+                    // Populate tracking information
+                    function formatDateTime(dateString) {
+                        if (!dateString) return '-';
+                        try {
+                            const date = new Date(dateString);
+                            return date.toLocaleString('en-US', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                            });
+                        } catch (e) {
+                            return dateString;
+                        }
+                    }
+
+                    document.getElementById('first_created_display').textContent = formatDateTime(header.first_created);
+                    document.getElementById('last_updated_display').textContent = formatDateTime(header.last_updated);
+                    document.getElementById('update_count_display').textContent = header.update_count || 0;
 
                     // Show details section
                     document.getElementById('delivery_info').classList.remove('hidden');

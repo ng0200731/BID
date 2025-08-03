@@ -1,8 +1,8 @@
 # Version Tracking System
 
-## 🔢 **Current Version: v1.4.5**
-**Last Updated**: 2025-08-02 13:05
-**Last Edit**: Fixed 'Analyzing PO data...' overlay to persist until analysis complete, not auto-hide
+## 🔢 **Current Version: v1.5.0**
+**Last Updated**: 2025-08-02 13:10
+**Last Edit**: Added PO tracking columns: first_created, last_updated, update_count with full database and UI integration
 
 ---
 
