@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.6.1"
-VERSION_DATE = "2025-08-02 13:20"
-LAST_EDIT = "Fixed download progress log to show latest messages at the top for better visibility"
+VERSION = "1.6.3"
+VERSION_DATE = "2025-08-02 13:30"
+LAST_EDIT = "Added real-time PO number search function to Saved PO Database table"
 
 
 
@@ -2282,6 +2282,25 @@ HTML_TEMPLATE = """
                         <button class="btn" onclick="loadSavedPOs()" style="background: #17a2b8;">🔄 Refresh List</button>
                     </div>
 
+                    <!-- Search Input -->
+                    <div style="margin-bottom: 15px;">
+                        <div style="position: relative; max-width: 400px;">
+                            <input
+                                type="text"
+                                id="po_search_input"
+                                placeholder="🔍 Search PO Number..."
+                                style="width: 100%; padding: 12px 45px 12px 15px; border: 2px solid #ddd; border-radius: 25px; font-size: 14px; outline: none; transition: all 0.3s ease;"
+                                oninput="filterPOTable()"
+                                onfocus="this.style.borderColor='#007bff'; this.style.boxShadow='0 0 0 3px rgba(0,123,255,0.1)'"
+                                onblur="this.style.borderColor='#ddd'; this.style.boxShadow='none'"
+                            >
+                            <div style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); color: #666; pointer-events: none;">
+                                🔍
+                            </div>
+                        </div>
+                        <div id="search_results_count" style="margin-top: 8px; font-size: 12px; color: #666;"></div>
+                    </div>
+
                     <div id="saved_pos_container" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px;">
                         <div id="saved_pos_loading" style="padding: 20px; text-align: center; color: #666;">
                             📊 Loading saved POs...
@@ -2966,6 +2985,12 @@ HTML_TEMPLATE = """
             const listDiv = document.getElementById('saved_pos_list');
             const emptyDiv = document.getElementById('saved_pos_empty');
 
+            // Clear search input
+            const searchInput = document.getElementById('po_search_input');
+            const resultsCount = document.getElementById('search_results_count');
+            if (searchInput) searchInput.value = '';
+            if (resultsCount) resultsCount.textContent = '';
+
             // Show loading
             loadingDiv.style.display = 'block';
             listDiv.style.display = 'none';
@@ -2996,13 +3021,13 @@ HTML_TEMPLATE = """
             let html = `
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
-                        <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
-                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">PO Number</th>
-                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">Company</th>
-                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">Items</th>
-                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">Cancel Date</th>
-                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6;">Saved Date</th>
-                            <th style="padding: 12px; text-align: center;">Action</th>
+                        <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6; position: sticky; top: 0; z-index: 10;">
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">PO Number</th>
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">Company</th>
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">Items</th>
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">Cancel Date</th>
+                            <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">Saved Date</th>
+                            <th style="padding: 12px; text-align: center; background: #f8f9fa;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -3028,6 +3053,50 @@ HTML_TEMPLATE = """
 
             html += '</tbody></table>';
             listDiv.innerHTML = html;
+        }
+
+        function filterPOTable() {
+            const searchInput = document.getElementById('po_search_input');
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            const table = document.querySelector('#saved_pos_list table');
+            const resultsCount = document.getElementById('search_results_count');
+
+            if (!table) {
+                resultsCount.textContent = '';
+                return;
+            }
+
+            const rows = table.querySelectorAll('tbody tr');
+            let visibleCount = 0;
+            let totalCount = rows.length;
+
+            rows.forEach(row => {
+                const poNumberCell = row.querySelector('td:first-child');
+                if (poNumberCell) {
+                    const poNumber = poNumberCell.textContent.toLowerCase();
+
+                    if (searchTerm === '' || poNumber.includes(searchTerm)) {
+                        row.style.display = '';
+                        visibleCount++;
+                    } else {
+                        row.style.display = 'none';
+                    }
+                }
+            });
+
+            // Update results count
+            if (searchTerm === '') {
+                resultsCount.textContent = '';
+            } else {
+                resultsCount.textContent = `Showing ${visibleCount} of ${totalCount} POs`;
+                if (visibleCount === 0) {
+                    resultsCount.innerHTML = '<span style="color: #dc3545;">❌ No POs found matching "' + searchTerm + '"</span>';
+                } else if (visibleCount === 1) {
+                    resultsCount.innerHTML = '<span style="color: #28a745;">✅ Found 1 PO matching "' + searchTerm + '"</span>';
+                } else {
+                    resultsCount.innerHTML = '<span style="color: #28a745;">✅ Found ' + visibleCount + ' POs matching "' + searchTerm + '"</span>';
+                }
+            }
         }
 
         async function selectPOForDelivery(poNumber) {

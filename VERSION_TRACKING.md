@@ -1,8 +1,8 @@
 # Version Tracking System
 
-## 🔢 **Current Version: v1.6.1**
-**Last Updated**: 2025-08-02 13:20
-**Last Edit**: Fixed download progress log to show latest messages at the top for better visibility
+## 🔢 **Current Version: v1.6.3**
+**Last Updated**: 2025-08-02 13:30
+**Last Edit**: Added real-time PO number search function to Saved PO Database table
 
 ---
 
