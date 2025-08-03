@@ -1,8 +1,8 @@
 # Version Tracking System
 
-## 🔢 **Current Version: v1.6.0**
-**Last Updated**: 2025-08-02 13:15
-**Last Edit**: Implemented non-blocking progress notification system - top-right alerts allow tab switching during operations
+## 🔢 **Current Version: v1.6.1**
+**Last Updated**: 2025-08-02 13:20
+**Last Edit**: Fixed download progress log to show latest messages at the top for better visibility
 
 ---
 

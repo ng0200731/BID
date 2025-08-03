@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.6.0"
-VERSION_DATE = "2025-08-02 13:15"
-LAST_EDIT = "Implemented non-blocking progress notification system - top-right alerts allow tab switching during operations"
+VERSION = "1.6.1"
+VERSION_DATE = "2025-08-02 13:20"
+LAST_EDIT = "Fixed download progress log to show latest messages at the top for better visibility"
 
 
 
@@ -3236,7 +3236,7 @@ HTML_TEMPLATE = """
                         <div style="background: #333; height: 100%; width: ${status.progress}%; transition: width 0.3s;"></div>
                     </div>
                     <div style="max-height: 200px; overflow-y: auto; background: #f9f9f9; padding: 10px; font-family: monospace;">
-                        ${status.log.map(entry => `<div>${entry}</div>`).join('')}
+                        ${status.log.slice().reverse().map(entry => `<div>${entry}</div>`).join('')}
                     </div>
                 `;
 
