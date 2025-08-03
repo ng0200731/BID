@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.7.3"
-VERSION_DATE = "2025-08-03 14:35"
-LAST_EDIT = "Reduced Report tab table height to 300px (half of previous height)"
+VERSION = "1.7.4"
+VERSION_DATE = "2025-08-03 14:40"
+LAST_EDIT = "Swapped PO Management and Report tab positions in navigation"
 
 
 
@@ -2383,8 +2383,8 @@ HTML_TEMPLATE = """
         <div class="tabs" style="position: sticky; top: 0; z-index: 1000; background: white; border-bottom: 2px solid #ddd; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
             <button class="tab active" onclick="showTab('artwork')">Download Artwork</button>
             <button class="tab" onclick="showTab('delivery')">Update Delivery Date</button>
-            <button class="tab" onclick="showTab('report')">Report</button>
             <button class="tab" onclick="showTab('po')">PO Management</button>
+            <button class="tab" onclick="showTab('report')">Report</button>
             <button class="tab" onclick="showTab('settings')">Settings</button>
         </div>
 
@@ -3064,8 +3064,8 @@ HTML_TEMPLATE = """
             tabs.forEach((tab, index) => {
                 if ((tabName === 'artwork' && index === 0) ||
                     (tabName === 'delivery' && index === 1) ||
-                    (tabName === 'report' && index === 2) ||
-                    (tabName === 'po' && index === 3) ||
+                    (tabName === 'po' && index === 2) ||
+                    (tabName === 'report' && index === 3) ||
                     (tabName === 'settings' && index === 4)) {
                     tab.classList.add('active');
                 }

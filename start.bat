@@ -62,6 +62,14 @@ if errorlevel 1 (
 
 echo All dependencies OK
 echo.
+
+REM Kill any existing Python processes to ensure clean start
+echo Stopping any existing Python processes...
+taskkill /f /im python.exe >nul 2>&1
+taskkill /f /im py.exe >nul 2>&1
+echo Previous Python processes stopped (if any were running)
+echo.
+
 echo Starting Flask web server...
 echo Chrome will open automatically in 3 seconds...
 echo Press Ctrl+C to stop the server
