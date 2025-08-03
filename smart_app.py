@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.5.0"
-VERSION_DATE = "2025-08-02 13:10"
-LAST_EDIT = "Added PO tracking columns: first_created, last_updated, update_count with full database and UI integration"
+VERSION = "1.6.0"
+VERSION_DATE = "2025-08-02 13:15"
+LAST_EDIT = "Implemented non-blocking progress notification system - top-right alerts allow tab switching during operations"
 
 
 
@@ -1926,7 +1926,93 @@ HTML_TEMPLATE = """
         .hidden {
             display: none;
         }
-        
+
+        /* Progress Notification System */
+        .notification-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            max-width: 400px;
+            pointer-events: none;
+        }
+
+        .notification {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            border-left: 4px solid #007bff;
+            backdrop-filter: blur(10px);
+            pointer-events: auto;
+            transform: translateX(100%);
+            transition: all 0.3s ease-in-out;
+            opacity: 0;
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .notification.processing {
+            border-left-color: #007bff;
+            background: linear-gradient(135deg, rgba(0, 123, 255, 0.1) 0%, rgba(255, 255, 255, 0.95) 100%);
+        }
+
+        .notification.success {
+            border-left-color: #28a745;
+            background: linear-gradient(135deg, rgba(40, 167, 69, 0.1) 0%, rgba(255, 255, 255, 0.95) 100%);
+        }
+
+        .notification.error {
+            border-left-color: #dc3545;
+            background: linear-gradient(135deg, rgba(220, 53, 69, 0.1) 0%, rgba(255, 255, 255, 0.95) 100%);
+        }
+
+        .notification-icon {
+            font-size: 18px;
+            min-width: 20px;
+        }
+
+        .notification-content {
+            flex: 1;
+            line-height: 1.4;
+        }
+
+        .notification-close {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #666;
+            padding: 0;
+            margin-left: 8px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .notification-close:hover {
+            opacity: 1;
+        }
+
+        /* Spinning animation for processing */
+        .notification.processing .notification-icon {
+            animation: spin 2s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
         .loading {
             text-align: center;
             padding: 20px;
@@ -2012,6 +2098,9 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
+    <!-- Progress Notification Container -->
+    <div id="notification-container" class="notification-container"></div>
+
     <div class="header">
         <p>Download artwork files - Smart PO Analysis & Recommendations</p>
         <p style="font-size: 0.9em; color: #bdc3c7;">Intelligent artwork download with multiple methods</p>
@@ -2452,6 +2541,82 @@ HTML_TEMPLATE = """
         let currentPO = null;
         window.currentPoData = null;  // Global variable for checkbox functions
 
+        // Progress Notification System
+        let notificationCounter = 0;
+        const activeNotifications = new Map();
+
+        function showProgressNotification(id, message, type = 'processing', icon = '🔄') {
+            const container = document.getElementById('notification-container');
+
+            // Check if notification already exists
+            let notification = document.getElementById(`notification-${id}`);
+
+            if (!notification) {
+                // Create new notification
+                notification = document.createElement('div');
+                notification.id = `notification-${id}`;
+                notification.className = `notification ${type}`;
+
+                notification.innerHTML = `
+                    <div class="notification-icon">${icon}</div>
+                    <div class="notification-content">${message}</div>
+                    <button class="notification-close" onclick="removeNotification('${id}')">&times;</button>
+                `;
+
+                container.appendChild(notification);
+
+                // Trigger animation
+                setTimeout(() => {
+                    notification.classList.add('show');
+                }, 100);
+
+                // Store in active notifications
+                activeNotifications.set(id, notification);
+            } else {
+                // Update existing notification
+                const iconEl = notification.querySelector('.notification-icon');
+                const contentEl = notification.querySelector('.notification-content');
+
+                iconEl.textContent = icon;
+                contentEl.textContent = message;
+
+                // Update type class
+                notification.className = `notification show ${type}`;
+            }
+
+            return notification;
+        }
+
+        function updateNotification(id, message, type = 'success', icon = '✅', autoRemove = true) {
+            const notification = showProgressNotification(id, message, type, icon);
+
+            if (autoRemove) {
+                // Auto-remove success notifications after 4 seconds
+                setTimeout(() => {
+                    removeNotification(id);
+                }, 4000);
+            }
+        }
+
+        function removeNotification(id) {
+            const notification = document.getElementById(`notification-${id}`);
+            if (notification) {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                    activeNotifications.delete(id);
+                }, 300);
+            }
+        }
+
+        function clearAllNotifications() {
+            activeNotifications.forEach((notification, id) => {
+                removeNotification(id);
+            });
+        }
+
         // Method selection
         document.addEventListener('DOMContentLoaded', function() {
             // Set Method 5 as default
@@ -2620,7 +2785,10 @@ HTML_TEMPLATE = """
             document.getElementById('welcome_section').style.display = 'none';
 
             document.getElementById('analyze_btn').disabled = true;
-            showError('🔍 Analyzing PO data...', 'success', true); // persistent = true
+
+            // Show progress notification
+            const notificationId = `analyze-${poNumber}`;
+            showProgressNotification(notificationId, `🔍 Analyzing ${poNumber} PO data...`, 'processing', '🔄');
 
             try {
                 const response = await fetch('/api/analyze_po?t=' + Date.now(), {
@@ -2633,7 +2801,9 @@ HTML_TEMPLATE = """
                 console.log('API Response:', result); // Debug log
 
                 if (result.success) {
-                    clearError(); // Clear the persistent "Analyzing PO data..." message
+                    // Update notification to show completion
+                    updateNotification(notificationId, `✅ Finished Analyzing ${poNumber} PO`, 'success', '✅');
+
                     currentPO = result;
                     window.currentPoData = result;  // Store globally for checkbox functions
                     console.log('Items received:', result.items.length); // Debug log
@@ -2642,12 +2812,10 @@ HTML_TEMPLATE = """
                     document.getElementById('step2').classList.remove('hidden');
                     document.getElementById('step3').classList.remove('hidden');
                 } else {
-                    clearError(); // Clear the persistent message before showing error
-                    showError(result.error || 'Failed to analyze PO');
+                    updateNotification(notificationId, `❌ Failed to analyze ${poNumber}: ${result.error || 'Unknown error'}`, 'error', '❌');
                 }
             } catch (error) {
-                clearError(); // Clear the persistent message before showing error
-                showError('Error analyzing PO: ' + error.message);
+                updateNotification(notificationId, `❌ Error analyzing ${poNumber}: ${error.message}`, 'error', '❌');
             } finally {
                 document.getElementById('analyze_btn').disabled = false;
             }
@@ -2769,6 +2937,10 @@ HTML_TEMPLATE = """
                     await savePOToDatabase(currentPO.po_number);
                 }
 
+                // Show download progress notification
+                const downloadNotificationId = `download-${currentPO.po_number}`;
+                showProgressNotification(downloadNotificationId, `📥 Downloading ${currentPO.po_number} artwork...`, 'processing', '📥');
+
                 // Start the actual download
                 await fetch('/api/start_download', {
                     method: 'POST',
@@ -2781,9 +2953,10 @@ HTML_TEMPLATE = """
                 });
 
                 // Start polling for progress
-                pollProgress();
+                pollProgress(downloadNotificationId);
             } catch (error) {
-                showError('Error starting download: ' + error.message);
+                const downloadNotificationId = `download-${currentPO.po_number}`;
+                updateNotification(downloadNotificationId, `❌ Error starting download for ${currentPO.po_number}: ${error.message}`, 'error', '❌');
             }
         }
 
@@ -3049,11 +3222,11 @@ HTML_TEMPLATE = """
             alert('Report exported to CSV (feature coming soon)');
         }
 
-        async function pollProgress() {
+        async function pollProgress(downloadNotificationId = null) {
             try {
                 const response = await fetch('/api/status');
                 const status = await response.json();
-                
+
                 // Show "Open Folder" link if download is complete (100% and not active)
                 const showOpenFolder = !status.active && status.progress === 100 && status.download_folder;
 
@@ -3068,12 +3241,29 @@ HTML_TEMPLATE = """
                 `;
 
                 if (status.active) {
-                    setTimeout(pollProgress, 1000);
+                    setTimeout(() => pollProgress(downloadNotificationId), 1000);
                 } else {
+                    // Download completed - update notification
+                    if (downloadNotificationId && currentPO) {
+                        if (status.progress === 100) {
+                            updateNotification(downloadNotificationId, `✅ Finished Downloading ${currentPO.po_number} artwork`, 'success', '✅');
+                        } else {
+                            updateNotification(downloadNotificationId, `❌ Download failed for ${currentPO.po_number}`, 'error', '❌');
+                        }
+                    }
+
                     document.getElementById('download_btn').disabled = false;
+                    const topButton = document.getElementById('download_btn_top');
+                    if (topButton) {
+                        topButton.disabled = false;
+                        topButton.innerHTML = '🚀 Start Download';
+                    }
                 }
             } catch (error) {
                 console.error('Error polling progress:', error);
+                if (downloadNotificationId && currentPO) {
+                    updateNotification(downloadNotificationId, `❌ Error during download of ${currentPO.po_number}`, 'error', '❌');
+                }
             }
         }
 
@@ -3324,8 +3514,9 @@ HTML_TEMPLATE = """
                     }
                 }
 
-                // Show loading message
-                showError('📊 Saving PO details to database...', 'info');
+                // Show progress notification
+                const saveNotificationId = `save-${poNumber}`;
+                showProgressNotification(saveNotificationId, `💾 Saving PO ${poNumber} details to database...`, 'processing', '💾');
 
                 // Save PO details
                 const saveResponse = await fetch('/api/po/save_details', {
@@ -3337,10 +3528,10 @@ HTML_TEMPLATE = """
                 const saveResult = await saveResponse.json();
 
                 if (saveResult.success) {
-                    showError(`✅ PO ${poNumber} saved to database (${saveResult.items_count} items)`, 'success');
+                    updateNotification(saveNotificationId, `✅ Finished Saving PO ${poNumber} to database (${saveResult.items_count} items)`, 'success', '✅');
                     return true;
                 } else {
-                    showError('❌ Failed to save PO: ' + saveResult.message, 'error');
+                    updateNotification(saveNotificationId, `❌ Failed to save PO ${poNumber}: ${saveResult.message}`, 'error', '❌');
                     return false;
                 }
 

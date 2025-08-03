@@ -1,8 +1,8 @@
 # Version Tracking System
 
-## 🔢 **Current Version: v1.5.0**
-**Last Updated**: 2025-08-02 13:10
-**Last Edit**: Added PO tracking columns: first_created, last_updated, update_count with full database and UI integration
+## 🔢 **Current Version: v1.6.0**
+**Last Updated**: 2025-08-02 13:15
+**Last Edit**: Implemented non-blocking progress notification system - top-right alerts allow tab switching during operations
 
 ---
 
