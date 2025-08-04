@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.8.1"
-VERSION_DATE = "2025-08-03 18:30"
-LAST_EDIT = "Complete 9-Step PO Management Wizard with Option A/B Packing, Barcodes, and Courier Management"
+VERSION = "1.8.5"
+VERSION_DATE = "2025-08-04 16:30"
+LAST_EDIT = "Fixed completion flow: disable PO field and download buttons after successful download, only NEW PO button active"
 
 from flask import Flask, render_template_string, request, jsonify
 import os
@@ -618,12 +618,13 @@ def scrape_po_details(po_number):
     """Scrape complete PO details from factoryPODetail.aspx page"""
     driver = None
     try:
-        # Setup Chrome driver (same as working download functions)
+        # Setup Chrome driver (Developer Mode)
         chrome_options = Options()
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-images")
+        chrome_options.add_argument("--remote-debugging-port=9223")  # Developer mode
 
         driver_path = ChromeDriverManager().install()
         service = Service(driver_path)
@@ -882,6 +883,7 @@ def get_po_data(po_number):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-images")
+    chrome_options.add_argument("--remote-debugging-port=9224")  # Developer mode
     
     try:
         driver_path = ChromeDriverManager().install()
@@ -1573,7 +1575,7 @@ def download_super_fast(items, download_folder):
                 pdf_url = f"https://app4.brandid.com/Artwork/{item_name}_{suffix_id}.pdf"
                 download_status['log'].append(f"🔗 Trying: {pdf_url}")
 
-                response = requests.get(pdf_url, timeout=15)
+                response = requests.get(pdf_url, timeout=8)
 
                 if response.status_code == 200 and len(response.content) > 1000:  # Valid PDF should be > 1KB
                     pdf_filename = f"{item_name}_{suffix_id}.pdf"
@@ -1643,11 +1645,14 @@ def download_original_slow(items, download_folder):
     download_status['log'].append("🐌 Original Slow method - Full browser automation")
     download_status['log'].append("🔐 Setting up browser with download preferences...")
 
-    # Setup Chrome with download preferences
+    # Setup Chrome with download preferences (Developer Mode)
     chrome_options = Options()
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--remote-debugging-port=9222")  # Developer mode
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--allow-running-insecure-content")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
 
@@ -1750,11 +1755,16 @@ def download_guaranteed_complete(po_number, items, download_folder):
     download_status['log'].append(f"⚡ Processing {len(items)} items with 100% success rate...")
     download_status['log'].append("🔍 Setting up browser for PDF URL extraction...")
 
-    # Setup browser for URL extraction
+    # Setup browser for URL extraction (Developer Mode)
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--remote-debugging-port=9225")  # Developer mode
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
 
     try:
         driver = webdriver.Chrome(options=chrome_options)
@@ -1822,13 +1832,24 @@ def download_guaranteed_complete(po_number, items, download_folder):
                 original_windows = len(driver.window_handles)
                 driver.execute_script("arguments[0].click();", link)
 
-                # Wait for popup
+                # Wait for popup with better detection
                 popup_opened = False
-                for wait_attempt in range(30):
-                    time.sleep(0.1)
+                for wait_attempt in range(50):  # Increased wait time
+                    time.sleep(0.2)  # Longer sleep intervals
                     if len(driver.window_handles) > original_windows:
                         popup_opened = True
                         break
+
+                if not popup_opened:
+                    download_status['log'].append(f"⚠️ Popup timeout for {item_name}, trying alternative method...")
+                    # Try clicking again
+                    time.sleep(1)
+                    driver.execute_script("arguments[0].click();", link)
+                    for wait_attempt in range(30):
+                        time.sleep(0.2)
+                        if len(driver.window_handles) > original_windows:
+                            popup_opened = True
+                            break
 
                 if popup_opened:
                     driver.switch_to.window(driver.window_handles[-1])
@@ -1879,7 +1900,7 @@ def download_guaranteed_complete(po_number, items, download_folder):
             download_status['progress'] = progress
 
             try:
-                response = requests.get(pdf_url, timeout=30)
+                response = requests.get(pdf_url, timeout=10)
                 if response.status_code == 200:
                     # Generate unique filename with smart numbering
                     final_filename = get_unique_filename(original_filename, download_folder, downloaded_files)
@@ -1913,10 +1934,13 @@ def download_guaranteed_complete(po_number, items, download_folder):
             total_size += os.path.getsize(file_path)
 
     download_status['log'].append("🎉 GUARANTEED COMPLETE DOWNLOAD COMPLETE!")
-    download_status['log'].append(f"✅ Processed items: {success_count}")
-    download_status['log'].append(f"❌ Failed items: {len(items) - success_count}")
+    download_status['log'].append(f"✅ Downloaded files: {success_count}")
+    download_status['log'].append(f"❌ Failed items: {len(item_pdf_data) - success_count}")
     download_status['log'].append(f"📥 Total files: {len(downloaded_files)}")
     download_status['log'].append(f"💾 Total size: {total_size / (1024*1024):.1f} MB")
+
+    # Debug information
+    download_status['log'].append(f"🔍 Debug: Found {len(item_pdf_data)} PDF URLs, Downloaded {success_count} files")
 
     return success_count
 
@@ -3028,7 +3052,7 @@ HTML_TEMPLATE = """
                 <label for="po_input">PO Number:</label>
                 <input type="text" id="po_input" placeholder="Enter PO number (e.g., 1284789)" />
                 <button class="btn" onclick="analyzePO()" id="analyze_btn">Analyze PO</button>
-                <button class="btn" onclick="clearEverything()" id="new_btn" style="background: #28a745; margin-left: 10px;">🆕 NEW</button>
+                <button class="btn" onclick="clearEverything()" id="new_btn" style="background: #28a745; margin-left: 10px; font-weight: bold; font-size: 14px;">🆕 NEW PO</button>
             </div>
 
             <!-- Error/Success Messages -->
@@ -3987,6 +4011,9 @@ HTML_TEMPLATE = """
             // Clear form inputs
             document.getElementById('po_input').value = '';
 
+            // Re-enable PO input field
+            document.getElementById('po_input').disabled = false;
+
             // Hide all steps except step 1
             document.getElementById('step2').classList.add('hidden');
             document.getElementById('step3').classList.add('hidden');
@@ -4002,15 +4029,43 @@ HTML_TEMPLATE = """
 
             // Reset global variables
             currentPO = null;
+            selectedMethod = 'guaranteed_complete'; // Reset to default method
 
             // Clear session storage
             sessionStorage.removeItem('formState');
 
-            // Re-enable analyze button
+            // Re-enable and reset analyze button
             document.getElementById('analyze_btn').disabled = false;
-            document.getElementById('analyze_btn').textContent = 'Analyze PO';
+            document.getElementById('analyze_btn').innerHTML = 'Analyze PO';
 
-            showError('✅ Cleared everything. Ready for new PO.', 'success');
+            // Re-enable and reset download buttons
+            const downloadBtn = document.getElementById('download_btn');
+            const downloadBtnTop = document.getElementById('download_btn_top');
+            if (downloadBtn) {
+                downloadBtn.disabled = false;
+                downloadBtn.innerHTML = 'Start Download';
+            }
+            if (downloadBtnTop) {
+                downloadBtnTop.disabled = false;
+                downloadBtnTop.innerHTML = '🚀 Start Download';
+            }
+
+            // Reset method selection to default (Method 5)
+            document.querySelectorAll('.method-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            const method5Card = document.querySelector('[data-method="guaranteed_complete"]');
+            if (method5Card) {
+                method5Card.classList.add('selected');
+            }
+
+            // Clear all notifications
+            clearAllNotifications();
+
+            // Focus on PO input for immediate use
+            document.getElementById('po_input').focus();
+
+            showError('✅ Ready for new PO! Enter PO number above.', 'success');
         }
 
         // Checkbox handling functions
@@ -4180,6 +4235,24 @@ HTML_TEMPLATE = """
             const selectedItems = getSelectedItems();
             if (selectedItems.length === 0) {
                 showError('Please select at least one item to download.');
+                return;
+            }
+
+            // 🆕 DOWNLOAD CONFIRMATION
+            const methodName = selectedMethod === 'guaranteed_complete' ? 'Guaranteed Complete Download (Method 5)' :
+                              selectedMethod === 'original_slow' ? 'Original Slow Method' :
+                              selectedMethod === 'super_fast' ? 'Super Fast Method' :
+                              selectedMethod === 'smart_direct' ? 'Smart Direct Method' :
+                              selectedMethod === 'hybrid_smart' ? 'Hybrid Smart Method' : selectedMethod;
+
+            const confirmDownload = confirm(`🚀 Start Download Confirmation\n\n` +
+                `PO Number: ${currentPO.po_number}\n` +
+                `Method: ${methodName}\n` +
+                `Items to download: ${selectedItems.length}\n` +
+                `Expected files: ${selectedItems.length} PDFs\n\n` +
+                `Click OK to start downloading artwork files.`);
+
+            if (!confirmDownload) {
                 return;
             }
 
@@ -4551,14 +4624,19 @@ HTML_TEMPLATE = """
                 const response = await fetch('/api/status');
                 const status = await response.json();
 
-                // Show "Open Folder" link if download is complete (100% and not active)
+                // Show "Open Folder" and "New PO" links if download is complete (100% and not active)
                 const showOpenFolder = !status.active && status.progress === 100 && status.download_folder;
+                const showNewPO = !status.active && status.progress === 100;
 
                 document.getElementById('progress_info').innerHTML = `
-                    <p>Progress: ${status.progress}% ${showOpenFolder ? '<a href="#" onclick="openDownloadFolder()" style="margin-left: 15px; color: #007bff; text-decoration: none; font-weight: bold;">📁 Open Folder</a>' : ''}</p>
+                    <p>Progress: ${status.progress}%
+                        ${showOpenFolder ? '<a href="#" onclick="openDownloadFolder()" style="margin-left: 15px; color: #007bff; text-decoration: none; font-weight: bold;">📁 Open Folder</a>' : ''}
+                        ${showNewPO ? '<a href="#" onclick="clearEverything()" style="margin-left: 15px; color: #28a745; text-decoration: none; font-weight: bold;">🆕 New PO</a>' : ''}
+                    </p>
                     <div style="background: #e0e0e0; height: 20px; margin: 10px 0;">
                         <div style="background: #333; height: 100%; width: ${status.progress}%; transition: width 0.3s;"></div>
                     </div>
+                    ${showNewPO ? '<div style="padding: 15px; background: #d4edda; border-radius: 8px; margin: 10px 0; border-left: 4px solid #28a745;"><strong>✅ Download Complete!</strong><br>📁 Open the download folder to access your files.<br>🆕 Click "NEW PO" button to start processing another PO.</div>' : ''}
                     <div style="max-height: 200px; overflow-y: auto; background: #f9f9f9; padding: 10px; font-family: monospace;">
                         ${status.log.slice().reverse().map(entry => `<div>${entry}</div>`).join('')}
                     </div>
@@ -4571,16 +4649,36 @@ HTML_TEMPLATE = """
                     if (downloadNotificationId && currentPO) {
                         if (status.progress === 100) {
                             updateNotification(downloadNotificationId, `✅ Finished Downloading ${currentPO.po_number} artwork`, 'success', '✅');
+
+                            // 🔒 DISABLE FIELDS AFTER SUCCESSFUL DOWNLOAD
+                            // Disable PO input field
+                            document.getElementById('po_input').disabled = true;
+
+                            // Disable analyze button
+                            document.getElementById('analyze_btn').disabled = true;
+                            document.getElementById('analyze_btn').innerHTML = '✅ Completed';
+
+                            // Disable download buttons
+                            document.getElementById('download_btn').disabled = true;
+                            document.getElementById('download_btn').innerHTML = '✅ Download Complete';
+
+                            const topButton = document.getElementById('download_btn_top');
+                            if (topButton) {
+                                topButton.disabled = true;
+                                topButton.innerHTML = '✅ Download Complete';
+                            }
+
                         } else {
                             updateNotification(downloadNotificationId, `❌ Download failed for ${currentPO.po_number}`, 'error', '❌');
-                        }
-                    }
 
-                    document.getElementById('download_btn').disabled = false;
-                    const topButton = document.getElementById('download_btn_top');
-                    if (topButton) {
-                        topButton.disabled = false;
-                        topButton.innerHTML = '🚀 Start Download';
+                            // Re-enable buttons for retry on failure
+                            document.getElementById('download_btn').disabled = false;
+                            const topButton = document.getElementById('download_btn_top');
+                            if (topButton) {
+                                topButton.disabled = false;
+                                topButton.innerHTML = '🚀 Start Download';
+                            }
+                        }
                     }
                 }
             } catch (error) {

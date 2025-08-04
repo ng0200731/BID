@@ -40,8 +40,8 @@ REM Check if required packages are installed
 echo Checking dependencies...
 py -c "import flask; print('Flask OK')" 2>nul
 if errorlevel 1 (
-    echo Installing Flask...
-    py -m pip install flask
+    echo Installing Flask with fast mirror...
+    py -m pip install -i https://mirrors.aliyun.com/pypi/simple/ flask --trusted-host mirrors.aliyun.com
     if errorlevel 1 (
         echo Failed to install Flask
         pause
@@ -49,15 +49,33 @@ if errorlevel 1 (
     )
 )
 
+py -c "import requests; print('Requests OK')" 2>nul
+if errorlevel 1 (
+    echo Installing Requests with fast mirror...
+    py -m pip install -i https://mirrors.aliyun.com/pypi/simple/ requests --trusted-host mirrors.aliyun.com
+)
+
+py -c "import bs4; print('BeautifulSoup OK')" 2>nul
+if errorlevel 1 (
+    echo Installing BeautifulSoup with fast mirror...
+    py -m pip install -i https://mirrors.aliyun.com/pypi/simple/ beautifulsoup4 --trusted-host mirrors.aliyun.com
+)
+
 py -c "import selenium; print('Selenium OK')" 2>nul
 if errorlevel 1 (
-    echo Installing Selenium...
-    py -m pip install selenium
+    echo Installing Selenium with fast mirror...
+    py -m pip install -i https://mirrors.aliyun.com/pypi/simple/ selenium --trusted-host mirrors.aliyun.com
     if errorlevel 1 (
         echo Failed to install Selenium
         pause
         exit /b 1
     )
+)
+
+py -c "import webdriver_manager; print('WebDriver Manager OK')" 2>nul
+if errorlevel 1 (
+    echo Installing WebDriver Manager with fast mirror...
+    py -m pip install -i https://mirrors.aliyun.com/pypi/simple/ webdriver-manager --trusted-host mirrors.aliyun.com
 )
 
 echo All dependencies OK
