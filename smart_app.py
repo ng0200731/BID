@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.8.5"
-VERSION_DATE = "2025-08-04 16:30"
-LAST_EDIT = "Fixed completion flow: disable PO field and download buttons after successful download, only NEW PO button active"
+VERSION = "1.9.0"
+VERSION_DATE = "2025-08-04 17:00"
+LAST_EDIT = "Complete PO Management Wizard rewrite: real-time packing with instant carton assignment and smart completion flow"
 
 from flask import Flask, render_template_string, request, jsonify
 import os
@@ -192,10 +192,23 @@ def init_database():
             color TEXT,
             packed_qty INTEGER,
             original_qty INTEGER,
+            packed_status TEXT DEFAULT 'pending',
+            carton_number TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (carton_id) REFERENCES cartons (id)
         )
     ''')
+
+    # Add new columns for real-time packing if they don't exist
+    try:
+        cursor.execute('ALTER TABLE carton_items ADD COLUMN packed_status TEXT DEFAULT "pending"')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute('ALTER TABLE carton_items ADD COLUMN carton_number TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # Create shipments table for courier management
     cursor.execute('''
@@ -2307,6 +2320,95 @@ def save_completion_status():
 
     except Exception as e:
         return jsonify({"success": False, "message": f"Error saving completion status: {str(e)}"})
+
+@app.route('/api/po_management/pack_items_realtime', methods=['POST'])
+def pack_items_realtime():
+    """Real-time packing: immediately mark items as packed and assign carton number"""
+    try:
+        data = request.json
+        po_number = data.get('po_number', '').strip()
+        selected_items = data.get('selected_items', [])
+
+        if not po_number or not selected_items:
+            return jsonify({"success": False, "message": "PO number and selected items are required"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get next carton number
+        cursor.execute('SELECT COUNT(*) FROM cartons WHERE po_number = ?', (po_number,))
+        existing_count = cursor.fetchone()[0]
+        carton_number = f"CTN{existing_count + 1:03d}"
+        barcode = f"{po_number}-{carton_number}-{datetime.now().strftime('%Y%m%d')}"
+
+        # Create carton record
+        cursor.execute('''
+            INSERT INTO cartons (po_number, carton_number, carton_size, actual_weight, barcode, packing_option)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (po_number, carton_number, 'Standard', 0, barcode, 'Option A'))
+
+        carton_id = cursor.lastrowid
+
+        # Mark items as packed and assign carton
+        for item in selected_items:
+            cursor.execute('''
+                INSERT INTO carton_items (carton_id, po_number, item_number, description, color,
+                                        packed_qty, original_qty, packed_status, carton_number)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (carton_id, po_number, item['item_number'], item['description'],
+                  item.get('color', ''), item['packed_qty'], item['original_qty'],
+                  'packed', carton_number))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "carton_number": carton_number,
+            "barcode": barcode,
+            "carton_id": carton_id,
+            "packed_items": len(selected_items)
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error packing items: {str(e)}"})
+
+@app.route('/api/po_management/get_packing_status', methods=['GET'])
+def get_packing_status():
+    """Get real-time packing status for PO items"""
+    try:
+        po_number = request.args.get('po_number', '').strip()
+
+        if not po_number:
+            return jsonify({"success": False, "message": "PO number is required"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get packed items with carton numbers
+        cursor.execute('''
+            SELECT item_number, carton_number, packed_status
+            FROM carton_items
+            WHERE po_number = ? AND packed_status = 'packed'
+        ''', (po_number,))
+
+        packed_items = {}
+        for row in cursor.fetchall():
+            item_number, carton_number, status = row
+            packed_items[item_number] = {
+                'carton_number': carton_number,
+                'status': status
+            }
+
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "packed_items": packed_items
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error getting packing status: {str(e)}"})
 
 @app.route('/api/po_management/create_cartons', methods=['POST'])
 def create_cartons():
@@ -5551,101 +5653,104 @@ HTML_TEMPLATE = """
             }
         }
 
-        function showMultiToOnePackingInterface() {
+        async function showMultiToOnePackingInterface() {
             const container = document.getElementById('multi_to_one_container');
             const items = currentPOData.items;
 
+            // Get real-time packing status
+            const packingStatus = await getPackingStatus(currentPOData.po_number);
+
             let html = `
                 <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #2196f3;">
-                    <h4>📦 Option A: Multi-line → 1 Carton</h4>
-                    <p style="color: #666; margin-bottom: 15px;">Select multiple items to pack together in one carton. All selected items will go into one carton.</p>
+                    <h4>📦 Option A: Multi-line → 1 Carton (Real-time Packing)</h4>
+                    <p style="color: #666; margin-bottom: 15px;">Select items and they will be immediately packed into cartons. Each selection creates a new carton automatically.</p>
+                </div>
 
-                    <div style="overflow-x: auto;">
-                        <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
-                            <thead>
-                                <tr style="background: #f8f9fa;">
-                                    <th style="padding: 10px; border: 1px solid #ddd; width: 50px;">Select</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Item #</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Description</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Color</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Qty to Pack</th>
-                                    <th style="padding: 10px; border: 1px solid #ddd;">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+                <div style="margin: 20px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <button onclick="selectAllUnpackedItems()" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                        ✅ Select All Unpacked
+                    </button>
+                    <button onclick="clearAllSelections()" style="padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                        ❌ Clear Selections
+                    </button>
+                    <span id="selection_counter" style="font-weight: bold; color: #007bff;">0 items selected</span>
+                </div>
+
+                <div style="margin: 20px 0;">
+                    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                        <thead>
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 12px; border: 1px solid #ddd; text-align: center;">Select</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">Item #</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">Description</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">Color</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">Qty to Pack</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">Carton #</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
             `;
 
+            let unpackedCount = 0;
             items.forEach((item, index) => {
                 const qtyToPack = item.finished_qty || item.qty;
-                const isPacked = createdCartons.some(carton =>
-                    carton.items.some(cartonItem => cartonItem.item_number === item.item_number)
-                );
+                const packingInfo = packingStatus[item.item_number];
+                const isPacked = packingInfo && packingInfo.status === 'packed';
+                const cartonNumber = isPacked ? packingInfo.carton_number : '-';
                 const statusText = isPacked ? '✅ Packed' : '⏳ Pending';
                 const statusColor = isPacked ? '#28a745' : '#ffc107';
-                const rowStyle = isPacked ? 'background: #f8fff8;' : '';
+                const rowStyle = isPacked ? 'background: #f8fff8; opacity: 0.7;' : '';
+
+                if (!isPacked) unpackedCount++;
 
                 html += `
                     <tr style="${rowStyle}">
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
-                            <input type="checkbox" id="select_item_${index}" onchange="updateMultiToOneSelection()" ${isPacked ? 'disabled' : ''}>
+                            <input type="checkbox" id="select_item_${index}" onchange="handleItemSelection(${index})" ${isPacked ? 'disabled' : ''}>
                         </td>
                         <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${item.item_number}</td>
                         <td style="padding: 10px; border: 1px solid #ddd;">${item.description}</td>
                         <td style="padding: 10px; border: 1px solid #ddd; color: #666;">${item.color || 'N/A'}</td>
                         <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-weight: bold; color: #007bff;">${qtyToPack}</td>
-                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center; color: ${statusColor}; font-weight: bold;">${statusText}</td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center; font-weight: bold; color: ${isPacked ? '#28a745' : '#999'};">
+                            ${cartonNumber}
+                        </td>
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">
+                            <span style="background: ${statusColor}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;">
+                                ${statusText}
+                            </span>
+                        </td>
                     </tr>
                 `;
             });
 
             html += `
-                            </tbody>
-                        </table>
-                    </div>
+                        </tbody>
+                    </table>
+                </div>
 
-                    <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #ddd;">
-                        <h5 style="margin-bottom: 15px; color: #333;">📦 Carton Details</h5>
-                        <div style="display: flex; gap: 20px; align-items: end; flex-wrap: wrap;">
-                            <div style="flex: 1; min-width: 200px;">
-                                <label for="carton_size_select" style="display: block; margin-bottom: 8px; font-weight: bold;">Carton Size:</label>
-                                <select id="carton_size_select" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                                    <option value="Small">Small (30x20x15 cm)</option>
-                                    <option value="Medium" selected>Medium (40x30x20 cm)</option>
-                                    <option value="Large">Large (50x40x30 cm)</option>
-                                    <option value="Extra Large">Extra Large (60x50x40 cm)</option>
-                                    <option value="Custom">Custom Size</option>
-                                </select>
-                            </div>
-                            <div style="flex: 1; min-width: 150px;">
-                                <label for="carton_weight" style="display: block; margin-bottom: 8px; font-weight: bold;">Weight (kg):</label>
-                                <input type="number" id="carton_weight" placeholder="Enter weight" step="0.1" min="0"
-                                       style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                            </div>
-                            <div style="flex: 0;">
-                                <button onclick="createMultiToOneCarton()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
-                                    📦 Create Carton
-                                </button>
-                            </div>
+                <div id="packing_feedback" style="margin: 20px 0;"></div>
+
+                <div style="text-align: center; margin: 30px 0;">
+                    ${unpackedCount === 0 ? `
+                        <div style="background: #d4edda; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
+                            <h4 style="color: #155724; margin: 0 0 10px 0;">🎉 All Items Packed!</h4>
+                            <p style="color: #155724; margin: 0;">All items have been packed into cartons. You can now proceed to the next step.</p>
                         </div>
-                    </div>
-
-                    <div id="multi_to_one_feedback" style="margin-top: 15px;"></div>
-
-                    <div style="margin-top: 20px; text-align: center;">
-                        <button onclick="goToPOStep(5)" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-right: 10px;">
-                            ← Back to Packing Logic
+                        <button onclick="goToPOStep(7)" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                            ➡️ Continue to Carton Summary
                         </button>
-                        <button onclick="viewCreatedCartons()" style="padding: 12px 24px; background: #17a2b8; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-right: 10px;">
-                            📦 View Created Cartons
-                        </button>
-                        <button onclick="goToPOStep(7)" style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
-                            Continue to Summary →
-                        </button>
-                    </div>
+                    ` : `
+                        <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ffc107;">
+                            <p style="color: #856404; margin: 0;"><strong>${unpackedCount} items</strong> remaining to pack. Select items above to pack them automatically.</p>
+                        </div>
+                    `}
                 </div>
             `;
 
             container.innerHTML = html;
+            updateSelectionCounter();
         }
 
         function showOneToMultiPackingInterface() {
@@ -5705,16 +5810,101 @@ HTML_TEMPLATE = """
             container.innerHTML = html;
         }
 
-        function updateMultiToOneSelection() {
-            // Update UI to show selected items count
-            const checkboxes = document.querySelectorAll('[id^="select_item_"]');
+        // New real-time packing helper functions
+        async function getPackingStatus(poNumber) {
+            try {
+                const response = await fetch(`/api/po_management/get_packing_status?po_number=${poNumber}`);
+                const result = await response.json();
+                return result.success ? result.packed_items : {};
+            } catch (error) {
+                console.error('Error getting packing status:', error);
+                return {};
+            }
+        }
+
+        function updateSelectionCounter() {
+            const checkboxes = document.querySelectorAll('[id^="select_item_"]:not([disabled])');
             let selectedCount = 0;
             checkboxes.forEach(cb => {
                 if (cb.checked) selectedCount++;
             });
 
-            if (selectedCount > 0) {
-                showInfo(`📦 ${selectedCount} items selected for packing`);
+            const counter = document.getElementById('selection_counter');
+            if (counter) {
+                counter.textContent = `${selectedCount} items selected`;
+                counter.style.color = selectedCount > 0 ? '#28a745' : '#007bff';
+            }
+        }
+
+        function selectAllUnpackedItems() {
+            const checkboxes = document.querySelectorAll('[id^="select_item_"]:not([disabled])');
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+            });
+            updateSelectionCounter();
+        }
+
+        function clearAllSelections() {
+            const checkboxes = document.querySelectorAll('[id^="select_item_"]');
+            checkboxes.forEach(cb => {
+                cb.checked = false;
+            });
+            updateSelectionCounter();
+        }
+
+        async function handleItemSelection(index) {
+            const checkbox = document.getElementById(`select_item_${index}`);
+
+            if (checkbox.checked) {
+                // Item was selected - pack it immediately
+                await packSelectedItems([index]);
+                checkbox.checked = false; // Uncheck after packing
+            }
+
+            updateSelectionCounter();
+        }
+
+        async function packSelectedItems(selectedIndices) {
+            const feedbackDiv = document.getElementById('packing_feedback');
+
+            try {
+                feedbackDiv.innerHTML = '<div style="color: #007bff; padding: 10px; background: #e3f2fd; border-radius: 5px;">⏳ Packing items...</div>';
+
+                const selectedItems = selectedIndices.map(index => {
+                    const item = currentPOData.items[index];
+                    return {
+                        item_number: item.item_number,
+                        description: item.description,
+                        color: item.color || '',
+                        packed_qty: item.finished_qty || item.qty,
+                        original_qty: item.qty
+                    };
+                });
+
+                const response = await fetch('/api/po_management/pack_items_realtime', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        po_number: currentPOData.po_number,
+                        selected_items: selectedItems
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    feedbackDiv.innerHTML = `<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ Packed ${result.packed_items} items into ${result.carton_number}</div>`;
+
+                    // Refresh the interface to show updated status
+                    setTimeout(() => {
+                        showMultiToOnePackingInterface();
+                    }, 1500);
+                } else {
+                    feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ${result.message}</div>`;
+                }
+
+            } catch (error) {
+                feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error packing items: ${error.message}</div>`;
             }
         }
 
