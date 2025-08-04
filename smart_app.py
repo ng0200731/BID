@@ -90,6 +90,7 @@ def init_database():
             bundle_qty TEXT,
             unit_price TEXT,
             extension TEXT,
+            packed_status TEXT DEFAULT 'not_packed',
             created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (po_number) REFERENCES po_headers(po_number)
         )
@@ -115,6 +116,12 @@ def init_database():
         cursor.execute('ALTER TABLE po_headers ADD COLUMN ship_via TEXT')
     except sqlite3.OperationalError:
         pass
+
+    # Add packed_status column to po_items table if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE po_items ADD COLUMN packed_status TEXT DEFAULT 'not_packed'")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     try:
         cursor.execute('ALTER TABLE po_headers ADD COLUMN order_type TEXT')
@@ -2334,12 +2341,14 @@ def reset_database():
         cursor.execute('DELETE FROM carton_items')
         cursor.execute('DELETE FROM cartons')
 
-        # Reset all items to not_packed status (if status column exists)
+        # Add packed_status column if it doesn't exist
         try:
-            cursor.execute("UPDATE po_items SET packed_status = 'not_packed'")
+            cursor.execute("ALTER TABLE po_items ADD COLUMN packed_status TEXT DEFAULT 'not_packed'")
         except sqlite3.OperationalError:
-            # If column doesn't exist, we'll handle it in load_po
-            pass
+            pass  # Column already exists
+
+        # Reset all items to not_packed status
+        cursor.execute("UPDATE po_items SET packed_status = 'not_packed'")
 
         conn.commit()
         conn.close()
@@ -2363,6 +2372,13 @@ def load_po_simple():
 
         conn = sqlite3.connect('po_database.db')
         cursor = conn.cursor()
+
+        # Add packed_status column if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE po_items ADD COLUMN packed_status TEXT DEFAULT 'not_packed'")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # Get PO items
         cursor.execute('SELECT * FROM po_items WHERE po_number = ?', (po_number,))
