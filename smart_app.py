@@ -2435,11 +2435,11 @@ def pack_items_simple():
     try:
         data = request.json
         po_number = data.get('po_number', '').strip()
-        selected_item_ids = data.get('selected_item_ids', [])
+        selected_items = data.get('selected_items', [])
         carton_type = data.get('carton_type', '').strip()
         carton_weight = float(data.get('carton_weight', 0))
 
-        if not po_number or not selected_item_ids or not carton_type:
+        if not po_number or not selected_items or not carton_type:
             return jsonify({"success": False, "message": "Missing required fields"})
 
         conn = sqlite3.connect('po_database.db')
@@ -2464,31 +2464,30 @@ def pack_items_simple():
 
         # Update selected items to 'packed' and link to carton
         packed_items = []
-        for item_id in selected_item_ids:
-            # Get item details
-            cursor.execute('SELECT * FROM po_items WHERE id = ?', (item_id,))
-            item_row = cursor.fetchone()
+        for item_data in selected_items:
+            item_number = item_data.get('item_number', '')
+            description = item_data.get('description', '')
+            color = item_data.get('color', '')
+            qty = item_data.get('qty', 0)
 
-            if item_row:
-                columns = [description[0] for description in cursor.description]
-                item = dict(zip(columns, item_row))
+            # Update item status to packed (match by item_number and po_number)
+            cursor.execute("""
+                UPDATE po_items
+                SET packed_status = 'packed'
+                WHERE po_number = ? AND item_number = ?
+            """, (po_number, item_number))
 
-                # Update item status to packed
-                cursor.execute("UPDATE po_items SET packed_status = 'packed' WHERE id = ?", (item_id,))
+            # Link item to carton
+            cursor.execute('''
+                INSERT INTO carton_items (carton_id, po_number, item_number, description, color, packed_qty, original_qty)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (carton_id, po_number, item_number, description, color, qty, qty))
 
-                # Link item to carton
-                cursor.execute('''
-                    INSERT INTO carton_items (carton_id, po_number, item_number, description, color, packed_qty, original_qty)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (carton_id, po_number, item.get('item_number', ''),
-                     item.get('description', ''), item.get('color', ''),
-                     item.get('qty', 0), item.get('qty', 0)))
-
-                packed_items.append({
-                    'item_number': item.get('item_number', ''),
-                    'description': item.get('description', ''),
-                    'qty': item.get('qty', 0)
-                })
+            packed_items.append({
+                'item_number': item_number,
+                'description': description,
+                'qty': qty
+            })
 
         conn.commit()
         conn.close()
@@ -3871,13 +3870,29 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Items List -->
+                    <!-- Items Table -->
                     <div style="background: white; border-radius: 8px; border: 1px solid #ddd; overflow: hidden;">
                         <div style="background: #f8f9fa; padding: 15px; border-bottom: 1px solid #ddd;">
                             <h4 style="margin: 0; color: #495057;">📋 PO Items</h4>
                             <div id="items_summary" style="margin-top: 5px; font-size: 14px; color: #666;"></div>
                         </div>
-                        <div id="items_list" style="max-height: 400px; overflow-y: auto;"></div>
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            <table style="width: 100%; border-collapse: collapse;">
+                                <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 10;">
+                                    <tr>
+                                        <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: left; font-weight: bold; width: 50px;">Select</th>
+                                        <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: left; font-weight: bold; width: 120px;">Item Number</th>
+                                        <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: left; font-weight: bold;">Description</th>
+                                        <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: left; font-weight: bold; width: 100px;">Color</th>
+                                        <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: center; font-weight: bold; width: 80px;">Qty</th>
+                                        <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: center; font-weight: bold; width: 100px;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="items_table_body">
+                                    <!-- Items will be loaded here -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
 
                     <!-- Pack Selected Items -->
@@ -5714,12 +5729,12 @@ HTML_TEMPLATE = """
             }
         }
 
-        // 4. Display Items
+        // 4. Display Items in Table Format
         function displayItems() {
             if (!currentPOData || !currentPOData.items) return;
 
             const summaryDiv = document.getElementById('items_summary');
-            const listDiv = document.getElementById('items_list');
+            const tableBody = document.getElementById('items_table_body');
 
             const totalItems = currentPOData.items.length;
             const doneItems = currentPOData.items.filter(item => item.packed_status === 'done').length;
@@ -5735,27 +5750,38 @@ HTML_TEMPLATE = """
                 const statusText = item.packed_status === 'packed' ? 'Packed' :
                                   item.packed_status === 'done' ? 'Done' : 'Not Packed';
 
+                const rowStyle = isDisabled ? 'opacity: 0.6; background: #f8f9fa;' : '';
+
                 html += `
-                    <div style="padding: 15px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 15px; ${isDisabled ? 'opacity: 0.6; background: #f8f9fa;' : ''}">
-                        <input type="checkbox" id="item_${index}" class="item-checkbox"
-                               ${isDisabled ? 'disabled' : ''}
-                               onchange="updateSelections()"
-                               style="transform: scale(1.2);">
-                        <div style="flex: 1;">
-                            <div style="font-weight: bold; color: #333;">${item.item_number || 'N/A'}</div>
-                            <div style="color: #666; font-size: 14px;">${item.description || 'No description'}</div>
-                            <div style="color: #666; font-size: 12px;">Color: ${item.color || 'N/A'} | Qty: ${item.qty || 0}</div>
-                        </div>
-                        <div style="text-align: center; min-width: 80px;">
+                    <tr style="${rowStyle}">
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
+                            <input type="checkbox" id="item_${index}" class="item-checkbox"
+                                   ${isDisabled ? 'disabled' : ''}
+                                   onchange="updateSelections()"
+                                   style="transform: scale(1.2);">
+                        </td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: bold; color: #333;">
+                            ${item.item_number || 'N/A'}
+                        </td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; color: #666;">
+                            ${item.description || 'No description'}
+                        </td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; color: #666;">
+                            ${item.color || 'N/A'}
+                        </td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;">
+                            ${item.qty || 0}
+                        </td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
                             <span style="padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; background: ${statusColor};">
                                 ${statusText}
                             </span>
-                        </div>
-                    </div>
+                        </td>
+                    </tr>
                 `;
             });
 
-            listDiv.innerHTML = html;
+            tableBody.innerHTML = html;
             updateSelections();
         }
 
@@ -5817,15 +5843,21 @@ HTML_TEMPLATE = """
             try {
                 statusDiv.innerHTML = '<div style="color: #007bff; padding: 10px; background: #e3f2fd; border-radius: 5px;">⏳ Packing items into carton...</div>';
 
-                // Get selected item IDs from database
-                const selectedItemIds = selectedItems.map(index => currentPOData.items[index].id);
+                // Get selected items data (use index as ID since items may not have database ID)
+                const selectedItemsData = selectedItems.map(index => ({
+                    index: index,
+                    item_number: currentPOData.items[index].item_number,
+                    description: currentPOData.items[index].description,
+                    color: currentPOData.items[index].color,
+                    qty: currentPOData.items[index].qty
+                }));
 
                 const response = await fetch('/api/simple_packing/pack_items', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         po_number: currentPOData.po_number,
-                        selected_item_ids: selectedItemIds,
+                        selected_items: selectedItemsData,
                         carton_type: cartonType,
                         carton_weight: parseFloat(cartonWeight)
                     })
