@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "1.9.0"
-VERSION_DATE = "2025-08-04 17:00"
-LAST_EDIT = "Complete PO Management Wizard rewrite: real-time packing with instant carton assignment and smart completion flow"
+VERSION = "3.0.0"
+VERSION_DATE = "2025-08-04 19:00"
+LAST_EDIT = "COMPLETE RESET: Simple Option A packing - load PO, mark done, select items, pack to carton, repeat until finished"
 
 from flask import Flask, render_template_string, request, jsonify
 import os
@@ -2321,6 +2321,224 @@ def save_completion_status():
     except Exception as e:
         return jsonify({"success": False, "message": f"Error saving completion status: {str(e)}"})
 
+# ===== NEW SIMPLE OPTION A PACKING API ENDPOINTS =====
+
+@app.route('/api/simple_packing/reset_database', methods=['POST'])
+def reset_database():
+    """One-time reset: Clear all packed status for all POs"""
+    try:
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Clear all carton relationships
+        cursor.execute('DELETE FROM carton_items')
+        cursor.execute('DELETE FROM cartons')
+
+        # Reset all items to not_packed status (if status column exists)
+        try:
+            cursor.execute("UPDATE po_items SET packed_status = 'not_packed'")
+        except sqlite3.OperationalError:
+            # If column doesn't exist, we'll handle it in load_po
+            pass
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": "Database reset complete. All items marked as not packed."
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Reset error: {str(e)}"})
+
+@app.route('/api/simple_packing/load_po', methods=['GET'])
+def load_po_simple():
+    """Load PO items with packing status"""
+    try:
+        po_number = request.args.get('po_number', '').strip()
+
+        if not po_number:
+            return jsonify({"success": False, "message": "PO number is required"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get PO items
+        cursor.execute('SELECT * FROM po_items WHERE po_number = ?', (po_number,))
+        items = []
+
+        for row in cursor.fetchall():
+            # Get column names
+            columns = [description[0] for description in cursor.description]
+            item_dict = dict(zip(columns, row))
+
+            # Ensure packed_status exists
+            if 'packed_status' not in item_dict:
+                item_dict['packed_status'] = 'not_packed'
+
+            items.append(item_dict)
+
+        conn.close()
+
+        if not items:
+            return jsonify({"success": False, "message": f"No items found for PO {po_number}"})
+
+        return jsonify({
+            "success": True,
+            "po_number": po_number,
+            "items": items,
+            "total_items": len(items)
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Load PO error: {str(e)}"})
+
+@app.route('/api/simple_packing/mark_all_done', methods=['POST'])
+def mark_all_done():
+    """Mark all items in PO as 'done' (ready for packing)"""
+    try:
+        data = request.json
+        po_number = data.get('po_number', '').strip()
+
+        if not po_number:
+            return jsonify({"success": False, "message": "PO number is required"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Add packed_status column if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE po_items ADD COLUMN packed_status TEXT DEFAULT 'not_packed'")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Update all items to 'done' status
+        cursor.execute("UPDATE po_items SET packed_status = 'done' WHERE po_number = ?", (po_number,))
+        updated_count = cursor.rowcount
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": f"Marked {updated_count} items as done",
+            "updated_count": updated_count
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Mark done error: {str(e)}"})
+
+@app.route('/api/simple_packing/pack_items', methods=['POST'])
+def pack_items_simple():
+    """Pack selected items into a carton (Option A: Multi-line → 1 Carton)"""
+    try:
+        data = request.json
+        po_number = data.get('po_number', '').strip()
+        selected_item_ids = data.get('selected_item_ids', [])
+        carton_type = data.get('carton_type', '').strip()
+        carton_weight = float(data.get('carton_weight', 0))
+
+        if not po_number or not selected_item_ids or not carton_type:
+            return jsonify({"success": False, "message": "Missing required fields"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get next carton number
+        cursor.execute('SELECT COUNT(*) FROM cartons WHERE po_number = ?', (po_number,))
+        existing_count = cursor.fetchone()[0]
+        carton_number = f"CTN{existing_count + 1:03d}"
+
+        # Generate barcode
+        from datetime import datetime
+        barcode = f"{po_number}-{carton_number}-{datetime.now().strftime('%Y%m%d')}"
+
+        # Create carton record
+        cursor.execute('''
+            INSERT INTO cartons (po_number, carton_number, carton_size, actual_weight, barcode, packing_option)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (po_number, carton_number, carton_type, carton_weight, barcode, "Option A"))
+
+        carton_id = cursor.lastrowid
+
+        # Update selected items to 'packed' and link to carton
+        packed_items = []
+        for item_id in selected_item_ids:
+            # Get item details
+            cursor.execute('SELECT * FROM po_items WHERE id = ?', (item_id,))
+            item_row = cursor.fetchone()
+
+            if item_row:
+                columns = [description[0] for description in cursor.description]
+                item = dict(zip(columns, item_row))
+
+                # Update item status to packed
+                cursor.execute("UPDATE po_items SET packed_status = 'packed' WHERE id = ?", (item_id,))
+
+                # Link item to carton
+                cursor.execute('''
+                    INSERT INTO carton_items (carton_id, po_number, item_number, description, color, packed_qty, original_qty)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (carton_id, po_number, item.get('item_number', ''),
+                     item.get('description', ''), item.get('color', ''),
+                     item.get('qty', 0), item.get('qty', 0)))
+
+                packed_items.append({
+                    'item_number': item.get('item_number', ''),
+                    'description': item.get('description', ''),
+                    'qty': item.get('qty', 0)
+                })
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "carton_number": carton_number,
+            "barcode": barcode,
+            "packed_items_count": len(packed_items),
+            "packed_items": packed_items,
+            "message": f"Packed {len(packed_items)} items into {carton_number}"
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Pack items error: {str(e)}"})
+
+@app.route('/api/simple_packing/check_completion', methods=['GET'])
+def check_completion():
+    """Check if all items in PO are packed"""
+    try:
+        po_number = request.args.get('po_number', '').strip()
+
+        if not po_number:
+            return jsonify({"success": False, "message": "PO number is required"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Count total items and packed items
+        cursor.execute('SELECT COUNT(*) FROM po_items WHERE po_number = ?', (po_number,))
+        total_items = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM po_items WHERE po_number = ? AND packed_status = 'packed'", (po_number,))
+        packed_items = cursor.fetchone()[0]
+
+        conn.close()
+
+        is_complete = (total_items > 0 and packed_items == total_items)
+
+        return jsonify({
+            "success": True,
+            "is_complete": is_complete,
+            "total_items": total_items,
+            "packed_items": packed_items,
+            "remaining_items": total_items - packed_items
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Check completion error: {str(e)}"})
+
 @app.route('/api/po_management/pack_items_realtime', methods=['POST'])
 def pack_items_realtime():
     """Real-time packing: immediately mark items as packed and assign carton number"""
@@ -3588,97 +3806,97 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- PO Management Tab -->
+        <!-- PO Management Tab - SIMPLE OPTION A PACKING -->
         <div id="po" class="tab-content">
-            <!-- Progress Indicator -->
-            <div style="margin-bottom: 30px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
-                <h2 style="margin: 0 0 15px 0; text-align: center;">📦 Complete PO Management Wizard</h2>
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                    <div class="wizard-step" id="wizard_step_1" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.2); min-width: 100px;">
-                        <div style="font-size: 12px; opacity: 0.9;">Step 1</div>
-                        <div style="font-weight: bold;">PO Selection</div>
-                    </div>
-                    <div class="wizard-step" id="wizard_step_2" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
-                        <div style="font-size: 12px; opacity: 0.9;">Step 2</div>
-                        <div style="font-weight: bold;">Show Items</div>
-                    </div>
-                    <div class="wizard-step" id="wizard_step_3" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
-                        <div style="font-size: 12px; opacity: 0.9;">Step 3</div>
-                        <div style="font-weight: bold;">Completion</div>
-                    </div>
-                    <div class="wizard-step" id="wizard_step_4" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
-                        <div style="font-size: 12px; opacity: 0.9;">Step 4</div>
-                        <div style="font-weight: bold;">Quantities</div>
-                    </div>
-                    <div class="wizard-step" id="wizard_step_5" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
-                        <div style="font-size: 12px; opacity: 0.9;">Step 5</div>
-                        <div style="font-weight: bold;">Packing Logic</div>
-                    </div>
-                    <div class="wizard-step" id="wizard_step_6" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
-                        <div style="font-size: 12px; opacity: 0.9;">Step 6</div>
-                        <div style="font-weight: bold;">Packing</div>
-                    </div>
-                    <div class="wizard-step" id="wizard_step_7" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
-                        <div style="font-size: 12px; opacity: 0.9;">Step 7</div>
-                        <div style="font-weight: bold;">Summary</div>
-                    </div>
-                    <div class="wizard-step" id="wizard_step_8" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
-                        <div style="font-size: 12px; opacity: 0.9;">Step 8</div>
-                        <div style="font-weight: bold;">Courier</div>
-                    </div>
-                    <div class="wizard-step" id="wizard_step_9" style="flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.1); min-width: 100px;">
-                        <div style="font-size: 12px; opacity: 0.9;">Step 9</div>
-                        <div style="font-weight: bold;">Complete</div>
-                    </div>
-                </div>
+            <!-- Simple Header -->
+            <div style="margin-bottom: 30px; padding: 20px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border-radius: 12px; color: white;">
+                <h2 style="margin: 0 0 15px 0; text-align: center;">📦 Simple Option A Packing</h2>
+                <p style="margin: 0; text-align: center; font-size: 16px; opacity: 0.9;">Load PO → Mark Done → Select Items → Pack to Carton → Repeat</p>
             </div>
 
-            <!-- Step 1: PO Selection -->
-            <div id="po_step_1" class="po-step active">
-                <div class="step">
-                    <h2><span class="step-number">1️⃣</span>PO Selection</h2>
-                    <p>Input or select PO number to begin the packing process</p>
+            <!-- Main Interface -->
+            <div style="max-width: 1200px; margin: 0 auto;">
 
-                    <div style="margin: 30px 0; padding: 25px; background: #f8f9fa; border-radius: 12px; border-left: 4px solid #007bff;">
-                        <label for="po_management_input" style="display: block; margin-bottom: 15px; font-weight: bold; font-size: 16px;">PO Number:</label>
-                        <div style="display: flex; gap: 15px; align-items: center;">
-                            <input type="text" id="po_management_input" placeholder="Enter PO number (e.g., 1288176)"
-                                   style="flex: 1; padding: 15px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; transition: border-color 0.3s;">
-                            <button onclick="loadPOForManagement()" style="padding: 15px 30px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; transition: background-color 0.3s;">
-                                🔍 Load PO
+                <!-- Step 1: Database Reset (One-time) -->
+                <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                    <h4 style="color: #856404; margin: 0 0 10px 0;">🗑️ One-Time Database Reset</h4>
+                    <p style="color: #856404; margin: 0 0 15px 0;">Clear all packed status for all POs (only needed once when starting fresh)</p>
+                    <button onclick="resetDatabase()" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                        🗑️ Reset All PO Status
+                    </button>
+                    <div id="reset_status" style="margin-top: 10px;"></div>
+                </div>
+
+                <!-- Step 2: PO Input -->
+                <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
+                    <h4 style="color: #1565c0; margin: 0 0 15px 0;">📋 Load PO</h4>
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <input type="text" id="simple_po_input" placeholder="Enter PO number (e.g., 1280290)"
+                               style="flex: 1; padding: 12px; border: 2px solid #ddd; border-radius: 5px; font-size: 16px;">
+                        <button onclick="loadPOSimple()" style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                            🔍 Load PO
+                        </button>
+                    </div>
+                    <div id="po_load_status" style="margin-top: 15px;"></div>
+                </div>
+
+                <!-- Step 3: Items Display & Actions -->
+                <div id="items_container" style="display: none;">
+
+                    <!-- Action Buttons -->
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #6c757d;">
+                        <h4 style="color: #495057; margin: 0 0 15px 0;">⚡ Quick Actions</h4>
+                        <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                            <button onclick="markAllDone()" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                                ✅ Mark All Done
+                            </button>
+                            <button onclick="selectAllItems()" style="padding: 10px 20px; background: #17a2b8; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                                ☑️ Select All
+                            </button>
+                            <button onclick="clearSelections()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                ❌ Clear Selections
                             </button>
                         </div>
-                        <div style="margin-top: 10px; font-size: 14px; color: #666;">
-                            💡 Try sample POs: 1284789 or 1288176 for testing
+                        <div id="action_status" style="margin-top: 15px;"></div>
+                    </div>
+
+                    <!-- Packing Method -->
+                    <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #28a745;">
+                        <h4 style="color: #155724; margin: 0 0 15px 0;">📦 Packing Method</h4>
+                        <div style="display: flex; gap: 20px;">
+                            <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; color: #155724;">
+                                <input type="radio" name="packing_method" value="option_a" checked style="transform: scale(1.2);">
+                                ● Option A (Multi-line → 1 Carton)
+                            </label>
                         </div>
                     </div>
 
-                    <div id="po_management_status" style="margin-top: 20px; padding: 15px; border-radius: 8px; display: none;"></div>
-                </div>
-            </div>
-
-            <!-- Step 2: Show Items -->
-            <div id="po_step_2" class="po-step" style="display: none;">
-                <div class="step">
-                    <h2><span class="step-number">2️⃣</span>PO Items</h2>
-                    <p>Review all items in this PO before proceeding</p>
-
-                    <div id="po_items_container" style="margin: 20px 0;">
-                        <!-- Items will be loaded here -->
+                    <!-- Items List -->
+                    <div style="background: white; border-radius: 8px; border: 1px solid #ddd; overflow: hidden;">
+                        <div style="background: #f8f9fa; padding: 15px; border-bottom: 1px solid #ddd;">
+                            <h4 style="margin: 0; color: #495057;">📋 PO Items</h4>
+                            <div id="items_summary" style="margin-top: 5px; font-size: 14px; color: #666;"></div>
+                        </div>
+                        <div id="items_list" style="max-height: 400px; overflow-y: auto;"></div>
                     </div>
 
-                    <div style="margin: 30px 0; text-align: center;">
-                        <button onclick="goToPOStep(1)" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-right: 15px;">
-                            ← Back
+                    <!-- Pack Selected Items -->
+                    <div id="pack_section" style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-top: 20px; border-left: 4px solid #ffc107; display: none;">
+                        <h4 style="color: #856404; margin: 0 0 15px 0;">📦 Pack Selected Items</h4>
+                        <div id="selected_summary" style="margin-bottom: 15px; font-weight: bold; color: #856404;"></div>
+                        <button onclick="packSelectedItems()" style="padding: 12px 24px; background: #ffc107; color: #212529; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px;">
+                            📦 Pack Into Carton
                         </button>
-                        <button onclick="goToPOStep(3)" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
-                            Continue to Completion Status →
-                        </button>
+                        <div id="pack_status" style="margin-top: 15px;"></div>
                     </div>
+
                 </div>
+
             </div>
 
-            <!-- Step 3: Completion Status -->
+        </div>
+
+
             <div id="po_step_3" class="po-step" style="display: none;">
                 <div class="step">
                     <h2><span class="step-number">3️⃣</span>Completion Status</h2>
@@ -5388,13 +5606,278 @@ HTML_TEMPLATE = """
             showInfo('📄 Pagination feature coming soon!');
         }
 
-        // PO Management Functions - Complete 9-Step Wizard
+        // ===== SIMPLE OPTION A PACKING FUNCTIONS =====
         let currentPOData = null;
-        let currentCompletionStatus = null;
-        let currentPackingLogic = null;
-        let createdCartons = [];
-        let currentStep = 1;
+        let selectedItems = [];
 
+        // 1. Reset Database (One-time)
+        async function resetDatabase() {
+            const statusDiv = document.getElementById('reset_status');
+
+            if (!confirm('This will clear ALL packed status for ALL POs. Are you sure?')) {
+                return;
+            }
+
+            try {
+                statusDiv.innerHTML = '<div style="color: #007bff; padding: 10px; background: #e3f2fd; border-radius: 5px;">⏳ Resetting database...</div>';
+
+                const response = await fetch('/api/simple_packing/reset_database', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ ' + result.message + '</div>';
+                } else {
+                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
+                }
+
+            } catch (error) {
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error: ' + error.message + '</div>';
+            }
+        }
+
+        // 2. Load PO
+        async function loadPOSimple() {
+            const poNumber = document.getElementById('simple_po_input').value.trim();
+            const statusDiv = document.getElementById('po_load_status');
+
+            if (!poNumber) {
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please enter a PO number</div>';
+                return;
+            }
+
+            try {
+                statusDiv.innerHTML = '<div style="color: #007bff; padding: 10px; background: #e3f2fd; border-radius: 5px;">⏳ Loading PO items...</div>';
+
+                const response = await fetch(`/api/simple_packing/load_po?po_number=${poNumber}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    currentPOData = result;
+                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ Loaded ' + result.total_items + ' items from PO ' + result.po_number + '</div>';
+
+                    // Show items container
+                    document.getElementById('items_container').style.display = 'block';
+                    displayItems();
+                } else {
+                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
+                }
+
+            } catch (error) {
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error: ' + error.message + '</div>';
+            }
+        }
+
+        // 3. Mark All Done
+        async function markAllDone() {
+            if (!currentPOData) {
+                showError('Please load a PO first');
+                return;
+            }
+
+            const statusDiv = document.getElementById('action_status');
+
+            try {
+                statusDiv.innerHTML = '<div style="color: #007bff; padding: 10px; background: #e3f2fd; border-radius: 5px;">⏳ Marking all items as done...</div>';
+
+                const response = await fetch('/api/simple_packing/mark_all_done', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        po_number: currentPOData.po_number
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ ' + result.message + '</div>';
+
+                    // Update items status in memory
+                    currentPOData.items.forEach(item => {
+                        if (item.packed_status !== 'packed') {
+                            item.packed_status = 'done';
+                        }
+                    });
+
+                    displayItems();
+                } else {
+                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
+                }
+
+            } catch (error) {
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error: ' + error.message + '</div>';
+            }
+        }
+
+        // 4. Display Items
+        function displayItems() {
+            if (!currentPOData || !currentPOData.items) return;
+
+            const summaryDiv = document.getElementById('items_summary');
+            const listDiv = document.getElementById('items_list');
+
+            const totalItems = currentPOData.items.length;
+            const doneItems = currentPOData.items.filter(item => item.packed_status === 'done').length;
+            const packedItems = currentPOData.items.filter(item => item.packed_status === 'packed').length;
+
+            summaryDiv.innerHTML = `Total: ${totalItems} | Done: ${doneItems} | Packed: ${packedItems} | Remaining: ${totalItems - packedItems}`;
+
+            let html = '';
+            currentPOData.items.forEach((item, index) => {
+                const isDisabled = item.packed_status === 'packed';
+                const statusColor = item.packed_status === 'packed' ? '#28a745' :
+                                   item.packed_status === 'done' ? '#ffc107' : '#6c757d';
+                const statusText = item.packed_status === 'packed' ? 'Packed' :
+                                  item.packed_status === 'done' ? 'Done' : 'Not Packed';
+
+                html += `
+                    <div style="padding: 15px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 15px; ${isDisabled ? 'opacity: 0.6; background: #f8f9fa;' : ''}">
+                        <input type="checkbox" id="item_${index}" class="item-checkbox"
+                               ${isDisabled ? 'disabled' : ''}
+                               onchange="updateSelections()"
+                               style="transform: scale(1.2);">
+                        <div style="flex: 1;">
+                            <div style="font-weight: bold; color: #333;">${item.item_number || 'N/A'}</div>
+                            <div style="color: #666; font-size: 14px;">${item.description || 'No description'}</div>
+                            <div style="color: #666; font-size: 12px;">Color: ${item.color || 'N/A'} | Qty: ${item.qty || 0}</div>
+                        </div>
+                        <div style="text-align: center; min-width: 80px;">
+                            <span style="padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; background: ${statusColor};">
+                                ${statusText}
+                            </span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            listDiv.innerHTML = html;
+            updateSelections();
+        }
+
+        // 5. Selection Functions
+        function selectAllItems() {
+            const checkboxes = document.querySelectorAll('.item-checkbox:not([disabled])');
+            checkboxes.forEach(cb => cb.checked = true);
+            updateSelections();
+        }
+
+        function clearSelections() {
+            const checkboxes = document.querySelectorAll('.item-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+            updateSelections();
+        }
+
+        function updateSelections() {
+            const checkboxes = document.querySelectorAll('.item-checkbox:not([disabled])');
+            selectedItems = [];
+
+            checkboxes.forEach((cb, index) => {
+                if (cb.checked) {
+                    // Find the actual item index (accounting for disabled items)
+                    const itemId = cb.id.replace('item_', '');
+                    selectedItems.push(parseInt(itemId));
+                }
+            });
+
+            const packSection = document.getElementById('pack_section');
+            const summaryDiv = document.getElementById('selected_summary');
+
+            if (selectedItems.length > 0) {
+                packSection.style.display = 'block';
+                summaryDiv.innerHTML = `Selected ${selectedItems.length} items for packing`;
+            } else {
+                packSection.style.display = 'none';
+            }
+        }
+
+        // 6. Pack Selected Items
+        async function packSelectedItems() {
+            if (!currentPOData || selectedItems.length === 0) {
+                showError('Please select items to pack');
+                return;
+            }
+
+            // Get carton details from user
+            const cartonType = prompt('Enter carton type/size (e.g., Small, Medium, Large):');
+            if (!cartonType) return;
+
+            const cartonWeight = prompt('Enter carton weight in kg:');
+            if (!cartonWeight || isNaN(cartonWeight)) {
+                showError('Please enter a valid weight');
+                return;
+            }
+
+            const statusDiv = document.getElementById('pack_status');
+
+            try {
+                statusDiv.innerHTML = '<div style="color: #007bff; padding: 10px; background: #e3f2fd; border-radius: 5px;">⏳ Packing items into carton...</div>';
+
+                // Get selected item IDs from database
+                const selectedItemIds = selectedItems.map(index => currentPOData.items[index].id);
+
+                const response = await fetch('/api/simple_packing/pack_items', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        po_number: currentPOData.po_number,
+                        selected_item_ids: selectedItemIds,
+                        carton_type: cartonType,
+                        carton_weight: parseFloat(cartonWeight)
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ ' + result.message + '</div>';
+
+                    // Update items status in memory
+                    selectedItems.forEach(index => {
+                        currentPOData.items[index].packed_status = 'packed';
+                    });
+
+                    // Clear selections and refresh display
+                    clearSelections();
+                    displayItems();
+
+                    // Check if all items are packed
+                    checkCompletion();
+
+                } else {
+                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
+                }
+
+            } catch (error) {
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error: ' + error.message + '</div>';
+            }
+        }
+
+        // 7. Check Completion
+        async function checkCompletion() {
+            if (!currentPOData) return;
+
+            try {
+                const response = await fetch(`/api/simple_packing/check_completion?po_number=${currentPOData.po_number}`);
+                const result = await response.json();
+
+                if (result.success && result.is_complete) {
+                    setTimeout(() => {
+                        alert('🎉 Finished! All items in PO ' + currentPOData.po_number + ' have been packed!');
+                    }, 1000);
+                }
+
+            } catch (error) {
+                console.error('Error checking completion:', error);
+            }
+        }
+
+        // ===== OLD COMPLEX FUNCTIONS COMMENTED OUT =====
+        /*
         function updateWizardProgress(step) {
             // Update wizard progress indicator
             for (let i = 1; i <= 9; i++) {
@@ -6452,7 +6935,8 @@ HTML_TEMPLATE = """
             goToPOStep(1);
             showSuccess('🔄 Ready for new PO management - All data cleared');
         }
-
+        */
+        // ===== END OF OLD COMPLEX FUNCTIONS =====
 
     </script>
 
