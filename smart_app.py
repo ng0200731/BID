@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.0.0"
-VERSION_DATE = "2025-08-04 19:00"
-LAST_EDIT = "COMPLETE RESET: Simple Option A packing - load PO, mark done, select items, pack to carton, repeat until finished"
+VERSION = "3.1.0"
+VERSION_DATE = "2025-08-05 20:15"
+LAST_EDIT = "PDF Layout Revision: Move payment/delivery terms below ship-to, 2-column receipt acknowledgment, fix company name display"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -2870,6 +2870,7 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
             <h1 style="margin: 0; font-size: 24px; color: #333;">📦 PACKING LIST</h1>
             <p style="margin: 10px 0 0 0; font-size: 16px; color: #666;">Purchase Order: {po_number}</p>
             <p style="margin: 5px 0 0 0; color: #666;">Date: {current_date}</p>
+            <p style="margin: 5px 0 0 0; color: #999; font-size: 10px;">Version: {VERSION} ({VERSION_DATE})</p>
         </div>
 
         <div class="company-info">
@@ -2891,11 +2892,10 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
                 <div class="address-line">Dallas, TX 75201</div>
                 <div class="address-line">Tel: (555) 987-6543</div>
                 <div class="address-line"><strong>Contact:</strong> Sarah Johnson, Warehouse Supervisor</div>
+                <br>
+                <div class="address-line"><strong>Payment Terms:</strong> Net 30 Days</div>
+                <div class="address-line"><strong>Delivery Terms:</strong> FOB Destination</div>
             </div>
-        </div>
-
-        <div class="po-details">
-            Payment Terms: Net 30 Days | Delivery Date: January 15, 2025 | Total Cartons: {total_cartons} | Total Items: {total_items} | Total Qty: {total_qty} pieces
         </div>
 
         <table class="items-table">
@@ -2918,31 +2918,31 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
         </div>
 
         <div class="signature-section">
-            <h3 style="margin-bottom: 20px; color: #333; text-align: center;">RECIPIENT ACKNOWLEDGMENT</h3>
+            <h3 style="margin-bottom: 30px; color: #333; text-align: center;">RECIPIENT ACKNOWLEDGMENT</h3>
 
-            <div class="signature-line">
-                <label>Signature:</label>
-                <input type="text" style="width: 400px;">
-            </div>
+            <div style="display: flex; gap: 20px;">
+                <!-- Left Column (50%) -->
+                <div style="width: 50%;">
+                    <!-- Empty for future use -->
+                </div>
 
-            <div class="signature-line">
-                <label>Print Name:</label>
-                <input type="text" style="width: 400px;">
-            </div>
+                <!-- Right Column (50%) -->
+                <div style="width: 50%;">
+                    <div style="margin-bottom: 25px;">
+                        <div style="font-weight: bold; margin-bottom: 10px;">Company Name:</div>
+                        <div style="font-size: 14px; font-weight: bold; color: #333;">ABC Manufacturing Corp</div>
+                    </div>
 
-            <div class="signature-line">
-                <label>Company:</label>
-                <input type="text" style="width: 400px;">
-            </div>
+                    <div class="signature-line" style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 10px; font-weight: bold;">Signature / Company Chop:</label>
+                        <div style="border-bottom: 2px solid #333; width: 100%; height: 40px;"></div>
+                    </div>
 
-            <div class="signature-line">
-                <label>Title:</label>
-                <input type="text" style="width: 400px;">
-            </div>
-
-            <div class="signature-line">
-                <label>Date:</label>
-                <input type="text" style="width: 400px;">
+                    <div class="signature-line" style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 10px; font-weight: bold;">Date of Signature:</label>
+                        <div style="border-bottom: 2px solid #333; width: 100%; height: 30px;"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -2958,7 +2958,16 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
     </html>
     """
 
-    return html_content
+    return html_content.format(
+        po_number=po_number,
+        current_date=current_date,
+        table_rows=table_rows,
+        total_cartons=total_cartons,
+        total_items=total_items,
+        total_qty=total_qty,
+        VERSION=VERSION,
+        VERSION_DATE=VERSION_DATE
+    )
 
 @app.route('/api/po_management/pack_items_realtime', methods=['POST'])
 def pack_items_realtime():
