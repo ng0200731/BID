@@ -3924,11 +3924,12 @@ HTML_TEMPLATE = """
 
             </div>
 
-            <!-- Fixed Popup Modal for Carton Packing - Two Step Flow -->
-            <div id="carton_modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000;">
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); min-width: 400px;">
-                    <h3 style="margin: 0 0 20px 0; color: #333; text-align: center;">📦 Pack Selected Items</h3>
-
+            <!-- Movable Window Modal for Carton Packing - Two Step Flow -->
+            <div id="carton_modal" style="display: none; position: fixed; top: 20%; right: 5%; z-index: 10000; background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); min-width: 400px; max-width: 500px; border: 2px solid #007bff;">
+                <div id="modal_header" style="background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 15px 20px; border-radius: 10px 10px 0 0; cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 16px;">📦 Pack Selected Items</h3>
+                    <button onclick="closeCartonModal()" style="background: none; border: none; color: white; font-size: 18px; cursor: pointer; padding: 0; width: 25px; height: 25px; border-radius: 50%; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='none'">×</button>
+                </div>
                     <!-- Step 1: Summary and Pack Button -->
                     <div id="modal_step_1" style="display: block;">
                         <div id="modal_selected_summary" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 25px; text-align: center; font-weight: bold; color: #495057; font-size: 16px;"></div>
@@ -5773,20 +5774,20 @@ HTML_TEMPLATE = """
 
                 modal.style.display = 'block';
                 modal.style.position = 'fixed';
-                modal.style.top = '0';
-                modal.style.left = '0';
-                modal.style.width = '100%';
-                modal.style.height = '100%';
+                modal.style.top = '20%';
+                modal.style.right = '5%';
                 modal.style.zIndex = '10000';
-                modal.style.background = 'rgba(0,0,0,0.5)';
+
+                // Initialize drag functionality
+                makeDraggable(modal);
 
                 // Update summary for test
                 const summary = document.getElementById('modal_selected_summary');
                 if (summary) {
-                    summary.innerHTML = 'TEST MODE - Two-step modal is working!';
+                    summary.innerHTML = 'TEST MODE - Movable window working!';
                 }
 
-                console.log('Test modal should be visible - Step 1');
+                console.log('Test modal should be visible - Movable window');
             } else {
                 alert('Modal element not found!');
             }
@@ -6006,17 +6007,17 @@ HTML_TEMPLATE = """
             if (cartonWeight) cartonWeight.value = '';
             if (packStatus) packStatus.innerHTML = '';
 
-            // Show modal with important styles (centered)
+            // Show modal as movable window (top-right)
             modal.style.display = 'block';
             modal.style.position = 'fixed';
-            modal.style.top = '0';
-            modal.style.left = '0';
-            modal.style.width = '100%';
-            modal.style.height = '100%';
+            modal.style.top = '20%';
+            modal.style.right = '5%';
             modal.style.zIndex = '10000';
-            modal.style.background = 'rgba(0,0,0,0.5)';
 
-            console.log('Modal should be visible now - Step 1');
+            // Initialize drag functionality
+            makeDraggable(modal);
+
+            console.log('Modal should be visible now - Step 1 (movable window)');
         }
 
         function showStep1() {
@@ -7204,6 +7205,63 @@ HTML_TEMPLATE = """
         }
         */
         // ===== END OF OLD COMPLEX FUNCTIONS =====
+
+        // Drag functionality for movable modal
+        function makeDraggable(modal) {
+            const header = document.getElementById('modal_header');
+            let isDragging = false;
+            let currentX;
+            let currentY;
+            let initialX;
+            let initialY;
+            let xOffset = 0;
+            let yOffset = 0;
+
+            header.addEventListener('mousedown', dragStart);
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', dragEnd);
+
+            function dragStart(e) {
+                initialX = e.clientX - xOffset;
+                initialY = e.clientY - yOffset;
+
+                if (e.target === header || header.contains(e.target)) {
+                    isDragging = true;
+                    header.style.cursor = 'grabbing';
+                }
+            }
+
+            function drag(e) {
+                if (isDragging) {
+                    e.preventDefault();
+                    currentX = e.clientX - initialX;
+                    currentY = e.clientY - initialY;
+
+                    xOffset = currentX;
+                    yOffset = currentY;
+
+                    // Keep modal within viewport bounds
+                    const rect = modal.getBoundingClientRect();
+                    const maxX = window.innerWidth - rect.width;
+                    const maxY = window.innerHeight - rect.height;
+
+                    currentX = Math.max(0, Math.min(currentX, maxX));
+                    currentY = Math.max(0, Math.min(currentY, maxY));
+
+                    modal.style.transform = `translate(${currentX}px, ${currentY}px)`;
+                    modal.style.top = '0';
+                    modal.style.right = 'auto';
+                    modal.style.left = '0';
+                }
+            }
+
+            function dragEnd(e) {
+                initialX = currentX;
+                initialY = currentY;
+                isDragging = false;
+                header.style.cursor = 'move';
+            }
+        }
 
         // Keyboard event handling for modal
         document.addEventListener('keydown', function(event) {
