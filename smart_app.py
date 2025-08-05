@@ -123,6 +123,12 @@ def init_database():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # Add carton_number column to po_items table if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE po_items ADD COLUMN carton_number TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     try:
         cursor.execute('ALTER TABLE po_headers ADD COLUMN order_type TEXT')
     except sqlite3.OperationalError:
@@ -3905,6 +3911,7 @@ HTML_TEMPLATE = """
                                         <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: left; font-weight: bold; width: 100px;">Color</th>
                                         <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: center; font-weight: bold; width: 80px;">Qty</th>
                                         <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: center; font-weight: bold; width: 100px;">Status</th>
+                                        <th style="padding: 12px; border-bottom: 2px solid #ddd; text-align: center; font-weight: bold; width: 100px;">Carton #</th>
                                     </tr>
                                 </thead>
                                 <tbody id="items_table_body">
@@ -5901,6 +5908,8 @@ HTML_TEMPLATE = """
                                   item.packed_status === 'done' ? 'Done' : 'Not Packed';
 
                 const rowStyle = isDisabled ? 'opacity: 0.6; background: #f8f9fa;' : '';
+                const cartonNumber = item.carton_number || '-';
+                const cartonStyle = item.carton_number ? 'font-weight: bold; color: #007bff;' : 'color: #999;';
 
                 html += `
                     <tr style="${rowStyle}">
@@ -5926,6 +5935,9 @@ HTML_TEMPLATE = """
                             <span style="padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; background: ${statusColor};">
                                 ${statusText}
                             </span>
+                        </td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; ${cartonStyle}">
+                            ${cartonNumber}
                         </td>
                     </tr>
                 `;
