@@ -3914,14 +3914,10 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Pack Selected Items -->
-                    <div id="pack_section" style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-top: 20px; border-left: 4px solid #ffc107; display: none;">
-                        <h4 style="color: #856404; margin: 0 0 15px 0;">📦 Pack Selected Items</h4>
-                        <div id="selected_summary" style="margin-bottom: 15px; font-weight: bold; color: #856404;"></div>
-                        <button onclick="openCartonModal()" style="padding: 12px 24px; background: #ffc107; color: #212529; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px;">
-                            📦 Pack Into Carton
-                        </button>
-                        <div id="pack_status" style="margin-top: 15px;"></div>
+                    <!-- Pack Selected Items (Hidden - Modal opens automatically) -->
+                    <div id="pack_section" style="display: none;">
+                        <div id="selected_summary"></div>
+                        <div id="pack_status"></div>
                     </div>
 
                 </div>
@@ -5963,14 +5959,12 @@ HTML_TEMPLATE = """
                 }
             });
 
-            const packSection = document.getElementById('pack_section');
-            const summaryDiv = document.getElementById('selected_summary');
-
             if (selectedItems.length > 0) {
-                packSection.style.display = 'block';
-                summaryDiv.innerHTML = `Selected ${selectedItems.length} items for packing`;
+                // Automatically open modal when items are selected
+                openCartonModal();
             } else {
-                packSection.style.display = 'none';
+                // Close modal if no items selected
+                closeCartonModal();
             }
         }
 
