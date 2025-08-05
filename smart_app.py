@@ -3915,7 +3915,7 @@ HTML_TEMPLATE = """
                     <div id="pack_section" style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-top: 20px; border-left: 4px solid #ffc107; display: none;">
                         <h4 style="color: #856404; margin: 0 0 15px 0;">📦 Pack Selected Items</h4>
                         <div id="selected_summary" style="margin-bottom: 15px; font-weight: bold; color: #856404;"></div>
-                        <button onclick="packSelectedItems()" style="padding: 12px 24px; background: #ffc107; color: #212529; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px;">
+                        <button onclick="openCartonModal()" style="padding: 12px 24px; background: #ffc107; color: #212529; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px;">
                             📦 Pack Into Carton
                         </button>
                         <div id="pack_status" style="margin-top: 15px;"></div>
@@ -3923,6 +3923,44 @@ HTML_TEMPLATE = """
 
                 </div>
 
+            </div>
+
+            <!-- Fixed Popup Modal for Carton Packing -->
+            <div id="carton_modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000;">
+                <div style="position: absolute; top: 50%; right: 20%; transform: translateY(-50%); background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); min-width: 350px;">
+                    <h3 style="margin: 0 0 20px 0; color: #333; text-align: center;">📦 Pack Selected Items</h3>
+
+                    <div id="modal_selected_summary" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: bold; color: #495057;"></div>
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">Carton Type/Size:</label>
+                        <select id="modal_carton_type" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px;">
+                            <option value="">Select carton type...</option>
+                            <option value="Small Box">Small Box</option>
+                            <option value="Medium Box">Medium Box</option>
+                            <option value="Large Box">Large Box</option>
+                            <option value="Extra Large Box">Extra Large Box</option>
+                            <option value="Custom">Custom</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">Weight (kg):</label>
+                        <input type="number" id="modal_carton_weight" placeholder="Enter weight in kg" step="0.1" min="0"
+                               style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px;">
+                    </div>
+
+                    <div style="display: flex; gap: 15px; justify-content: center;">
+                        <button onclick="confirmPackItems()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                            📦 Pack Items
+                        </button>
+                        <button onclick="closeCartonModal()" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px;">
+                            ❌ Cancel
+                        </button>
+                    </div>
+
+                    <div id="modal_pack_status" style="margin-top: 20px;"></div>
+                </div>
             </div>
 
         </div>
@@ -5726,6 +5764,18 @@ HTML_TEMPLATE = """
                     // Show items container
                     document.getElementById('items_container').style.display = 'block';
                     displayItems();
+
+                    // Auto-scroll to center the items table
+                    setTimeout(() => {
+                        const itemsContainer = document.getElementById('items_container');
+                        if (itemsContainer) {
+                            itemsContainer.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'center'
+                            });
+                        }
+                    }, 300); // Small delay to ensure table is rendered
+
                 } else {
                     statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
                 }
@@ -5869,29 +5919,53 @@ HTML_TEMPLATE = """
             }
         }
 
-        // 6. Pack Selected Items
-        async function packSelectedItems() {
+        // 6. Modal Functions for Carton Packing
+        function openCartonModal() {
             if (!currentPOData || selectedItems.length === 0) {
                 showError('Please select items to pack');
                 return;
             }
 
-            // Get carton details from user
-            const cartonType = prompt('Enter carton type/size (e.g., Small, Medium, Large):');
-            if (!cartonType) return;
+            // Update modal summary
+            const modalSummary = document.getElementById('modal_selected_summary');
+            modalSummary.innerHTML = `Selected ${selectedItems.length} items for packing`;
 
-            const cartonWeight = prompt('Enter carton weight in kg:');
-            if (!cartonWeight || isNaN(cartonWeight)) {
-                showError('Please enter a valid weight');
+            // Clear previous inputs
+            document.getElementById('modal_carton_type').value = '';
+            document.getElementById('modal_carton_weight').value = '';
+            document.getElementById('modal_pack_status').innerHTML = '';
+
+            // Show modal
+            document.getElementById('carton_modal').style.display = 'block';
+
+            // Focus on carton type dropdown
+            document.getElementById('modal_carton_type').focus();
+        }
+
+        function closeCartonModal() {
+            document.getElementById('carton_modal').style.display = 'none';
+        }
+
+        async function confirmPackItems() {
+            const cartonType = document.getElementById('modal_carton_type').value.trim();
+            const cartonWeight = document.getElementById('modal_carton_weight').value.trim();
+            const statusDiv = document.getElementById('modal_pack_status');
+
+            // Validation
+            if (!cartonType) {
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please select carton type</div>';
                 return;
             }
 
-            const statusDiv = document.getElementById('pack_status');
+            if (!cartonWeight || isNaN(cartonWeight) || parseFloat(cartonWeight) <= 0) {
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please enter valid weight</div>';
+                return;
+            }
 
             try {
                 statusDiv.innerHTML = '<div style="color: #007bff; padding: 10px; background: #e3f2fd; border-radius: 5px;">⏳ Packing items into carton...</div>';
 
-                // Get selected items data (use index as ID since items may not have database ID)
+                // Get selected items data
                 const selectedItemsData = selectedItems.map(index => ({
                     index: index,
                     item_number: currentPOData.items[index].item_number,
@@ -5925,8 +5999,13 @@ HTML_TEMPLATE = """
                     clearSelections();
                     displayItems();
 
-                    // Check if all items are packed
-                    checkCompletion();
+                    // Close modal after short delay
+                    setTimeout(() => {
+                        closeCartonModal();
+
+                        // Check if all items are packed
+                        checkCompletion();
+                    }, 1500);
 
                 } else {
                     statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
@@ -7017,6 +7096,19 @@ HTML_TEMPLATE = """
         }
         */
         // ===== END OF OLD COMPLEX FUNCTIONS =====
+
+        // Keyboard event handling for modal
+        document.addEventListener('keydown', function(event) {
+            const modal = document.getElementById('carton_modal');
+            if (modal && modal.style.display === 'block') {
+                if (event.key === 'Escape') {
+                    closeCartonModal();
+                } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    confirmPackItems();
+                }
+            }
+        });
 
     </script>
 
