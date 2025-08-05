@@ -3871,6 +3871,9 @@ HTML_TEMPLATE = """
                             <button onclick="clearSelections()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
                                 ❌ Clear Selections
                             </button>
+                            <button onclick="testModal()" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                                🧪 Test Modal
+                            </button>
                         </div>
                         <div id="action_status" style="margin-top: 15px;"></div>
                     </div>
@@ -3925,41 +3928,62 @@ HTML_TEMPLATE = """
 
             </div>
 
-            <!-- Fixed Popup Modal for Carton Packing -->
+            <!-- Fixed Popup Modal for Carton Packing - Two Step Flow -->
             <div id="carton_modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000;">
-                <div style="position: absolute; top: 50%; right: 20%; transform: translateY(-50%); background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); min-width: 350px;">
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); min-width: 400px;">
                     <h3 style="margin: 0 0 20px 0; color: #333; text-align: center;">📦 Pack Selected Items</h3>
 
-                    <div id="modal_selected_summary" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-weight: bold; color: #495057;"></div>
+                    <!-- Step 1: Summary and Pack Button -->
+                    <div id="modal_step_1" style="display: block;">
+                        <div id="modal_selected_summary" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 25px; text-align: center; font-weight: bold; color: #495057; font-size: 16px;"></div>
 
-                    <div style="margin-bottom: 20px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">Carton Type/Size:</label>
-                        <select id="modal_carton_type" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px;">
-                            <option value="">Select carton type...</option>
-                            <option value="Small Box">Small Box</option>
-                            <option value="Medium Box">Medium Box</option>
-                            <option value="Large Box">Large Box</option>
-                            <option value="Extra Large Box">Extra Large Box</option>
-                            <option value="Custom">Custom</option>
-                        </select>
+                        <div style="text-align: center;">
+                            <button onclick="showCartonForm()" style="padding: 15px 30px; background: #ffc107; color: #212529; border: none; border-radius: 8px; cursor: pointer; font-size: 18px; font-weight: bold;">
+                                📦 Pack Into Carton
+                            </button>
+                        </div>
+
+                        <div style="text-align: center; margin-top: 20px;">
+                            <button onclick="closeCartonModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                                ❌ Cancel
+                            </button>
+                        </div>
                     </div>
 
-                    <div style="margin-bottom: 25px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">Weight (kg):</label>
-                        <input type="number" id="modal_carton_weight" placeholder="Enter weight in kg" step="0.1" min="0"
-                               style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px;">
-                    </div>
+                    <!-- Step 2: Carton Details Form -->
+                    <div id="modal_step_2" style="display: none;">
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">Carton Type/Size:</label>
+                            <select id="modal_carton_type" style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px;">
+                                <option value="">Select carton type...</option>
+                                <option value="Small Box">Small Box</option>
+                                <option value="Medium Box">Medium Box</option>
+                                <option value="Large Box">Large Box</option>
+                                <option value="Extra Large Box">Extra Large Box</option>
+                                <option value="Custom">Custom</option>
+                            </select>
+                        </div>
 
-                    <div style="display: flex; gap: 15px; justify-content: center;">
-                        <button onclick="confirmPackItems()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold;">
-                            📦 Pack Items
-                        </button>
-                        <button onclick="closeCartonModal()" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px;">
-                            ❌ Cancel
-                        </button>
-                    </div>
+                        <div style="margin-bottom: 25px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">Weight (kg):</label>
+                            <input type="number" id="modal_carton_weight" placeholder="Enter weight in kg" step="0.1" min="0"
+                                   style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px;">
+                        </div>
 
-                    <div id="modal_pack_status" style="margin-top: 20px;"></div>
+                        <div style="display: flex; gap: 15px; justify-content: center;">
+                            <button onclick="confirmPackItems()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                                📦 Pack Items
+                            </button>
+                            <button onclick="backToSummary()" style="padding: 12px 24px; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px;">
+                                ← Back
+                            </button>
+                            <button onclick="closeCartonModal()" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px;">
+                                ❌ Cancel
+                            </button>
+                        </div>
+
+                        <div id="modal_pack_status" style="margin-top: 20px;"></div>
+                    </div>
                 </div>
             </div>
 
@@ -5741,6 +5765,37 @@ HTML_TEMPLATE = """
             console.log('🔄 All interface elements cleared');
         }
 
+        // Test Modal Function (for debugging)
+        function testModal() {
+            console.log('Test modal called');
+            const modal = document.getElementById('carton_modal');
+            console.log('Modal element found:', modal);
+
+            if (modal) {
+                // Show step 1
+                showStep1();
+
+                modal.style.display = 'block';
+                modal.style.position = 'fixed';
+                modal.style.top = '0';
+                modal.style.left = '0';
+                modal.style.width = '100%';
+                modal.style.height = '100%';
+                modal.style.zIndex = '10000';
+                modal.style.background = 'rgba(0,0,0,0.5)';
+
+                // Update summary for test
+                const summary = document.getElementById('modal_selected_summary');
+                if (summary) {
+                    summary.innerHTML = 'TEST MODE - Two-step modal is working!';
+                }
+
+                console.log('Test modal should be visible - Step 1');
+            } else {
+                alert('Modal element not found!');
+            }
+        }
+
         // 2. Load PO
         async function loadPOSimple() {
             const poNumber = document.getElementById('simple_po_input').value.trim();
@@ -5919,31 +5974,90 @@ HTML_TEMPLATE = """
             }
         }
 
-        // 6. Modal Functions for Carton Packing
+        // 6. Two-Step Modal Functions for Carton Packing
         function openCartonModal() {
+            console.log('openCartonModal called');
+            console.log('currentPOData:', currentPOData);
+            console.log('selectedItems:', selectedItems);
+
             if (!currentPOData || selectedItems.length === 0) {
-                showError('Please select items to pack');
+                alert('Please select items to pack first!');
+                return;
+            }
+
+            // Get modal element
+            const modal = document.getElementById('carton_modal');
+            console.log('Modal element:', modal);
+
+            if (!modal) {
+                alert('Modal not found! Check HTML structure.');
                 return;
             }
 
             // Update modal summary
             const modalSummary = document.getElementById('modal_selected_summary');
-            modalSummary.innerHTML = `Selected ${selectedItems.length} items for packing`;
+            if (modalSummary) {
+                modalSummary.innerHTML = `Selected ${selectedItems.length} items for packing`;
+            }
+
+            // Reset to step 1
+            showStep1();
 
             // Clear previous inputs
-            document.getElementById('modal_carton_type').value = '';
-            document.getElementById('modal_carton_weight').value = '';
-            document.getElementById('modal_pack_status').innerHTML = '';
+            const cartonType = document.getElementById('modal_carton_type');
+            const cartonWeight = document.getElementById('modal_carton_weight');
+            const packStatus = document.getElementById('modal_pack_status');
 
-            // Show modal
-            document.getElementById('carton_modal').style.display = 'block';
+            if (cartonType) cartonType.value = '';
+            if (cartonWeight) cartonWeight.value = '';
+            if (packStatus) packStatus.innerHTML = '';
+
+            // Show modal with important styles (centered)
+            modal.style.display = 'block';
+            modal.style.position = 'fixed';
+            modal.style.top = '0';
+            modal.style.left = '0';
+            modal.style.width = '100%';
+            modal.style.height = '100%';
+            modal.style.zIndex = '10000';
+            modal.style.background = 'rgba(0,0,0,0.5)';
+
+            console.log('Modal should be visible now - Step 1');
+        }
+
+        function showStep1() {
+            document.getElementById('modal_step_1').style.display = 'block';
+            document.getElementById('modal_step_2').style.display = 'none';
+        }
+
+        function showCartonForm() {
+            console.log('Showing carton form - Step 2');
+            document.getElementById('modal_step_1').style.display = 'none';
+            document.getElementById('modal_step_2').style.display = 'block';
 
             // Focus on carton type dropdown
-            document.getElementById('modal_carton_type').focus();
+            setTimeout(() => {
+                const cartonType = document.getElementById('modal_carton_type');
+                if (cartonType) cartonType.focus();
+            }, 100);
+        }
+
+        function backToSummary() {
+            console.log('Back to summary - Step 1');
+            showStep1();
         }
 
         function closeCartonModal() {
-            document.getElementById('carton_modal').style.display = 'none';
+            console.log('closeCartonModal called');
+            const modal = document.getElementById('carton_modal');
+            if (modal) {
+                modal.style.display = 'none';
+                // Reset to step 1 for next time
+                showStep1();
+                console.log('Modal closed and reset to step 1');
+            } else {
+                console.log('Modal not found when trying to close');
+            }
         }
 
         async function confirmPackItems() {
