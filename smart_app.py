@@ -5641,11 +5641,11 @@ HTML_TEMPLATE = """
         let currentPOData = null;
         let selectedItems = [];
 
-        // 1. Reset Database (One-time)
+        // 1. Reset Database (One-time) + Clear All Interface
         async function resetDatabase() {
             const statusDiv = document.getElementById('reset_status');
 
-            if (!confirm('This will clear ALL packed status for ALL POs. Are you sure?')) {
+            if (!confirm('This will clear ALL packed status for ALL POs and reset the entire interface. Are you sure?')) {
                 return;
             }
 
@@ -5662,6 +5662,10 @@ HTML_TEMPLATE = """
 
                 if (result.success) {
                     statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ ' + result.message + '</div>';
+
+                    // Clear ALL interface elements below reset section
+                    clearAllInterface();
+
                 } else {
                     statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
                 }
@@ -5669,6 +5673,34 @@ HTML_TEMPLATE = """
             } catch (error) {
                 statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error: ' + error.message + '</div>';
             }
+        }
+
+        // Clear All Interface Elements
+        function clearAllInterface() {
+            // Clear PO input and status
+            document.getElementById('simple_po_input').value = '';
+            document.getElementById('po_load_status').innerHTML = '';
+
+            // Clear action status
+            document.getElementById('action_status').innerHTML = '';
+
+            // Clear items summary and table
+            document.getElementById('items_summary').innerHTML = '';
+            document.getElementById('items_table_body').innerHTML = '';
+
+            // Clear pack section
+            document.getElementById('selected_summary').innerHTML = '';
+            document.getElementById('pack_status').innerHTML = '';
+
+            // Hide containers
+            document.getElementById('items_container').style.display = 'none';
+            document.getElementById('pack_section').style.display = 'none';
+
+            // Reset variables
+            currentPOData = null;
+            selectedItems = [];
+
+            console.log('🔄 All interface elements cleared');
         }
 
         // 2. Load PO
