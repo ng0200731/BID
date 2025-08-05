@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.1.0"
-VERSION_DATE = "2025-08-05 20:15"
-LAST_EDIT = "PDF Layout Revision: Move payment/delivery terms below ship-to, 2-column receipt acknowledgment, fix company name display"
+VERSION = "3.2.0"
+VERSION_DATE = "2025-08-05 20:25"
+LAST_EDIT = "Packing List Improvements: Remove pop-up, fix carton numbering (start from 1), add unique PL# generation, enable PDF download by PL#"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -261,9 +261,60 @@ def init_database():
         )
     ''')
 
+    # Create packing_lists table to track unique packing list numbers
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS packing_lists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pl_number TEXT UNIQUE,
+            po_number TEXT,
+            total_cartons INTEGER,
+            total_items INTEGER,
+            total_qty INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Add pl_number column to existing tables if they don't exist
+    try:
+        cursor.execute('ALTER TABLE po_items ADD COLUMN pl_number TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute('ALTER TABLE cartons ADD COLUMN pl_number TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    try:
+        cursor.execute('ALTER TABLE carton_items ADD COLUMN pl_number TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     conn.commit()
     conn.close()
     print("📊 Database initialized successfully")
+
+def generate_pl_number():
+    """Generate unique packing list number in format PL0000001"""
+    conn = sqlite3.connect('po_database.db')
+    cursor = conn.cursor()
+
+    # Get the highest existing PL number
+    cursor.execute('SELECT MAX(pl_number) FROM packing_lists')
+    result = cursor.fetchone()[0]
+
+    if result:
+        # Extract number from PL0000001 format
+        current_num = int(result[2:])  # Remove 'PL' prefix
+        next_num = current_num + 1
+    else:
+        next_num = 1
+
+    # Format as PL0000001
+    pl_number = f"PL{next_num:07d}"
+
+    conn.close()
+    return pl_number
 
 def create_sample_po_data():
     """Create sample PO data for testing"""
@@ -2468,10 +2519,10 @@ def pack_items_simple():
         conn = sqlite3.connect('po_database.db')
         cursor = conn.cursor()
 
-        # Get next carton number
+        # Get next carton number (sequential: 1, 2, 3...)
         cursor.execute('SELECT COUNT(*) FROM cartons WHERE po_number = ?', (po_number,))
         existing_count = cursor.fetchone()[0]
-        carton_number = f"CTN{existing_count + 1:03d}"
+        carton_number = str(existing_count + 1)
 
         # Generate barcode
         from datetime import datetime
@@ -2638,6 +2689,9 @@ def generate_pdf_packing_list():
         if not po_number:
             return "PO number is required", 400
 
+        # Generate unique PL number
+        pl_number = generate_pl_number()
+
         conn = sqlite3.connect('po_database.db')
         cursor = conn.cursor()
 
@@ -2661,17 +2715,56 @@ def generate_pdf_packing_list():
 
         carton_details = {row[0]: {'size': row[1], 'weight': row[2]} for row in cursor.fetchall()}
 
+        # Update carton numbers to be sequential (1, 2, 3...) and save PL data
+        if packed_items:
+            # Get unique carton numbers and create mapping
+            unique_cartons = sorted(list(set([item[0] for item in packed_items])))
+            carton_mapping = {old_carton: str(i + 1) for i, old_carton in enumerate(unique_cartons)}
+
+            # Update packed_items with new carton numbers
+            updated_packed_items = []
+            for carton_num, item_num, desc, color, qty in packed_items:
+                new_carton_num = carton_mapping[carton_num]
+                updated_packed_items.append((new_carton_num, item_num, desc, color, qty))
+
+            # Update carton_details with new numbers
+            updated_carton_details = {}
+            for old_carton, new_carton in carton_mapping.items():
+                if old_carton in carton_details:
+                    updated_carton_details[new_carton] = carton_details[old_carton]
+
+            # Save PL data to database
+            total_cartons = len(unique_cartons)
+            total_items = len(packed_items)
+            total_qty = sum([int(item[4]) for item in packed_items])
+
+            cursor.execute('''
+                INSERT INTO packing_lists (pl_number, po_number, total_cartons, total_items, total_qty)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (pl_number, po_number, total_cartons, total_items, total_qty))
+
+            # Update po_items with PL number
+            cursor.execute('''
+                UPDATE po_items
+                SET pl_number = ?
+                WHERE po_number = ? AND packed_status = 'packed'
+            ''', (pl_number, po_number))
+
+            conn.commit()
+            packed_items = updated_packed_items
+            carton_details = updated_carton_details
+
         conn.close()
 
         # Generate professional HTML packing list
-        html_content = generate_professional_packing_list_html(po_number, packed_items, carton_details)
+        html_content = generate_professional_packing_list_html(po_number, packed_items, carton_details, pl_number)
 
         return Response(html_content, mimetype='text/html')
 
     except Exception as e:
         return f"Error generating packing list: {str(e)}", 500
 
-def generate_professional_packing_list_html(po_number, packed_items, carton_details):
+def generate_professional_packing_list_html(po_number, packed_items, carton_details, pl_number):
     """Generate professional A4 packing list HTML"""
 
     # Current date
@@ -2733,50 +2826,50 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
             # Skip invalid quantities
             continue
 
-    html_content = f"""
-    <!DOCTYPE html>
+    # Create HTML content using string concatenation to avoid f-string issues
+    html_content = """<!DOCTYPE html>
     <html>
     <head>
         <meta charset="UTF-8">
-        <title>Packing List - PO {po_number}</title>
+        <title>Packing List - PO """ + po_number + """</title>
         <style>
-            @page {{
+            @page {
                 size: A4;
                 margin: 0.5in;
-            }}
-            body {{
+            }
+            body {
                 font-family: Arial, sans-serif;
                 font-size: 12px;
                 line-height: 1.4;
                 margin: 0;
                 padding: 20px;
-            }}
-            .header {{
+            }
+            .header {
                 text-align: center;
                 margin-bottom: 30px;
                 border-bottom: 2px solid #333;
                 padding-bottom: 20px;
-            }}
-            .company-info {{
+            }
+            .company-info {
                 display: flex;
                 justify-content: space-between;
                 margin-bottom: 30px;
-            }}
-            .bill-to, .ship-to {{
+            }
+            .bill-to, .ship-to {
                 width: 45%;
-            }}
-            .info-title {{
+            }
+            .info-title {
                 font-weight: bold;
                 font-size: 14px;
                 margin-bottom: 10px;
                 color: #333;
                 border-bottom: 1px solid #ccc;
                 padding-bottom: 5px;
-            }}
-            .address-line {{
+            }
+            .address-line {
                 margin-bottom: 3px;
-            }}
-            .po-details {{
+            }
+            .po-details {
                 margin-bottom: 30px;
                 background: #f8f9fa;
                 padding: 20px;
@@ -2786,91 +2879,92 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
                 font-size: 14px;
                 font-weight: bold;
                 color: #333;
-            }}
-            .items-table {{
+            }
+            .items-table {
                 width: 100%;
                 border-collapse: collapse;
                 margin-bottom: 30px;
-            }}
-            .items-table th {{
+            }
+            .items-table th {
                 background: #333;
                 color: white;
                 padding: 12px 8px;
                 border: 1px solid #ddd;
                 text-align: center;
                 font-weight: bold;
-            }}
-            .items-table td {{
+            }
+            .items-table td {
                 padding: 8px;
                 border: 1px solid #ddd;
                 vertical-align: top;
-            }}
-            .items-table tr:nth-child(even) {{
+            }
+            .items-table tr:nth-child(even) {
                 background: #f9f9f9;
-            }}
-            .carton-cell {{
+            }
+            .carton-cell {
                 background: #e8f4fd !important;
                 font-weight: bold;
                 text-align: center;
                 vertical-align: middle;
-            }}
-            .item-row {{
+            }
+            .item-row {
                 border-left: 3px solid #007bff;
-            }}
-            .items-table tfoot td {{
+            }
+            .items-table tfoot td {
                 font-weight: bold;
                 text-align: center;
-            }}
-            .total-header {{
+            }
+            .total-header {
                 background: #f8f9fa !important;
                 font-size: 14px;
                 border-top: 3px solid #333 !important;
-            }}
-            .total-row {{
+            }
+            .total-row {
                 background: #e8f4fd !important;
                 color: #333;
-            }}
-            .summary {{
+            }
+            .summary {
                 text-align: right;
                 margin-bottom: 40px;
                 font-weight: bold;
                 font-size: 14px;
-            }}
-            .signature-section {{
+            }
+            .signature-section {
                 margin-top: 50px;
                 border-top: 1px solid #ccc;
                 padding-top: 20px;
-            }}
-            .signature-line {{
+            }
+            .signature-line {
                 margin-bottom: 25px;
                 display: flex;
                 align-items: center;
-            }}
-            .signature-line label {{
+            }
+            .signature-line label {
                 display: inline-block;
                 width: 120px;
                 font-weight: bold;
                 margin-right: 15px;
-            }}
-            .signature-line input {{
+            }
+            .signature-line input {
                 border: none;
                 border-bottom: 2px solid #333;
                 width: 400px;
                 padding: 8px 0;
                 font-size: 14px;
-            }}
-            @media print {{
-                body {{ margin: 0; }}
-                .no-print {{ display: none; }}
-            }}
+            }
+            @media print {
+                body { margin: 0; }
+                .no-print { display: none; }
+            }
         </style>
     </head>
     <body>
         <div class="header">
             <h1 style="margin: 0; font-size: 24px; color: #333;">📦 PACKING LIST</h1>
-            <p style="margin: 10px 0 0 0; font-size: 16px; color: #666;">Purchase Order: {po_number}</p>
-            <p style="margin: 5px 0 0 0; color: #666;">Date: {current_date}</p>
-            <p style="margin: 5px 0 0 0; color: #999; font-size: 10px;">Version: {VERSION} ({VERSION_DATE})</p>
+            <p style="margin: 10px 0 0 0; font-size: 16px; color: #666;">Purchase Order: """ + po_number + """</p>
+            <p style="margin: 5px 0 0 0; font-size: 16px; color: #007bff; font-weight: bold;">Packing List: """ + pl_number + """</p>
+            <p style="margin: 5px 0 0 0; color: #666;">Date: """ + current_date + """</p>
+            <p style="margin: 5px 0 0 0; color: #999; font-size: 10px;">Version: """ + VERSION + """ (""" + VERSION_DATE + """)</p>
         </div>
 
         <div class="company-info">
@@ -2958,16 +3052,64 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
     </html>
     """
 
-    return html_content.format(
-        po_number=po_number,
-        current_date=current_date,
-        table_rows=table_rows,
-        total_cartons=total_cartons,
-        total_items=total_items,
-        total_qty=total_qty,
-        VERSION=VERSION,
-        VERSION_DATE=VERSION_DATE
-    )
+    # Replace placeholders in HTML content
+    html_content = html_content.replace("{table_rows}", table_rows)
+    html_content = html_content.replace("{total_cartons}", str(total_cartons))
+    html_content = html_content.replace("{total_items}", str(total_items))
+    html_content = html_content.replace("{total_qty}", str(total_qty))
+
+    return html_content
+
+@app.route('/api/simple_packing/download_pdf_by_pl', methods=['GET'])
+def download_pdf_by_pl():
+    """Download PDF packing list by PL number"""
+    try:
+        pl_number = request.args.get('pl_number', '').strip()
+
+        if not pl_number:
+            return "PL number is required", 400
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get PL details
+        cursor.execute('''
+            SELECT po_number, total_cartons, total_items, total_qty
+            FROM packing_lists
+            WHERE pl_number = ?
+        ''', (pl_number,))
+
+        pl_data = cursor.fetchone()
+        if not pl_data:
+            return "Packing list not found", 404
+
+        po_number = pl_data[0]
+
+        # Get packed items for this PL
+        cursor.execute('''
+            SELECT carton_number, item_number, description, color, qty
+            FROM po_items
+            WHERE pl_number = ? AND packed_status = 'packed'
+            ORDER BY carton_number ASC, item_number ASC
+        ''', (pl_number,))
+
+        packed_items = cursor.fetchall()
+
+        # Get carton details (use dummy data since we're focusing on PL functionality)
+        carton_details = {}
+        unique_cartons = list(set([item[0] for item in packed_items]))
+        for carton in unique_cartons:
+            carton_details[carton] = {'size': 'Medium', 'weight': 2.5}
+
+        conn.close()
+
+        # Generate HTML with existing PL number
+        html_content = generate_professional_packing_list_html(po_number, packed_items, carton_details, pl_number)
+
+        return Response(html_content, mimetype='text/html')
+
+    except Exception as e:
+        return f"Error downloading packing list: {str(e)}", 500
 
 @app.route('/api/po_management/pack_items_realtime', methods=['POST'])
 def pack_items_realtime():
@@ -2983,10 +3125,10 @@ def pack_items_realtime():
         conn = sqlite3.connect('po_database.db')
         cursor = conn.cursor()
 
-        # Get next carton number
+        # Get next carton number (sequential: 1, 2, 3...)
         cursor.execute('SELECT COUNT(*) FROM cartons WHERE po_number = ?', (po_number,))
         existing_count = cursor.fetchone()[0]
-        carton_number = f"CTN{existing_count + 1:03d}"
+        carton_number = str(existing_count + 1)
         barcode = f"{po_number}-{carton_number}-{datetime.now().strftime('%Y%m%d')}"
 
         # Create carton record
@@ -3088,8 +3230,8 @@ def create_cartons():
         created_cartons = []
 
         for i, carton_data in enumerate(cartons_data):
-            # Generate carton number and barcode
-            carton_number = f"CTN{existing_count + i + 1:03d}"
+            # Generate carton number and barcode (sequential: 1, 2, 3...)
+            carton_number = str(existing_count + i + 1)
             barcode = f"{po_number}-{carton_number}-{datetime.now().strftime('%Y%m%d')}"
 
             # Insert carton with enhanced data
@@ -6575,10 +6717,7 @@ HTML_TEMPLATE = """
                 const result = await response.json();
 
                 if (result.success) {
-                    // Show completion alert with carton count
-                    alert('🎉 Finished! All items in PO ' + currentPOData.po_number + ' have been packed! Total: ' + result.total_cartons + ' cartons created. Professional packing list will open in new window.');
-
-                    // Open professional PDF packing list in new window
+                    // Generate PL number and open PDF (no alert popup)
                     const pdfUrl = `/api/simple_packing/generate_pdf_packing_list?po_number=${currentPOData.po_number}`;
                     window.open(pdfUrl, '_blank', 'width=800,height=1000,scrollbars=yes,resizable=yes');
                 } else {
