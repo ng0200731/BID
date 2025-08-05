@@ -17,7 +17,7 @@ VERSION = "3.0.0"
 VERSION_DATE = "2025-08-04 19:00"
 LAST_EDIT = "COMPLETE RESET: Simple Option A packing - load PO, mark done, select items, pack to carton, repeat until finished"
 
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
 import threading
 import time
@@ -25,6 +25,7 @@ import requests
 import re
 import sqlite3
 from datetime import datetime
+import io
 
 def update_version(new_version, edit_description):
     """Helper function to update version info - USE THIS FOR EVERY EDIT"""
@@ -2492,12 +2493,12 @@ def pack_items_simple():
             color = item_data.get('color', '')
             qty = item_data.get('qty', 0)
 
-            # Update item status to packed (match by item_number and po_number)
+            # Update item status to packed and assign carton number
             cursor.execute("""
                 UPDATE po_items
-                SET packed_status = 'packed'
+                SET packed_status = 'packed', carton_number = ?
                 WHERE po_number = ? AND item_number = ?
-            """, (po_number, item_number))
+            """, (carton_number, po_number, item_number))
 
             # Link item to carton
             cursor.execute('''
@@ -2559,6 +2560,405 @@ def check_completion():
 
     except Exception as e:
         return jsonify({"success": False, "message": f"Check completion error: {str(e)}"})
+
+@app.route('/api/simple_packing/generate_packing_list', methods=['GET'])
+def generate_packing_list():
+    """Generate packing list grouped by cartons"""
+    try:
+        po_number = request.args.get('po_number', '').strip()
+
+        if not po_number:
+            return jsonify({"success": False, "message": "PO number is required"})
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get packed items grouped by carton
+        cursor.execute('''
+            SELECT carton_number, item_number, description, color, qty
+            FROM po_items
+            WHERE po_number = ? AND packed_status = 'packed' AND carton_number IS NOT NULL
+            ORDER BY carton_number ASC, item_number ASC
+        ''', (po_number,))
+
+        packed_items = cursor.fetchall()
+
+        # Get carton details
+        cursor.execute('''
+            SELECT carton_number, carton_size, actual_weight
+            FROM cartons
+            WHERE po_number = ?
+            ORDER BY carton_number ASC
+        ''', (po_number,))
+
+        carton_details = {row[0]: {'size': row[1], 'weight': row[2]} for row in cursor.fetchall()}
+
+        conn.close()
+
+        # Group items by carton
+        packing_list = {}
+        total_items = 0
+
+        for carton_num, item_num, desc, color, qty in packed_items:
+            if carton_num not in packing_list:
+                packing_list[carton_num] = {
+                    'carton_number': carton_num,
+                    'carton_size': carton_details.get(carton_num, {}).get('size', 'Unknown'),
+                    'carton_weight': carton_details.get(carton_num, {}).get('weight', 0),
+                    'items': [],
+                    'item_count': 0
+                }
+
+            packing_list[carton_num]['items'].append({
+                'item_number': item_num,
+                'description': desc,
+                'color': color,
+                'qty': qty
+            })
+            packing_list[carton_num]['item_count'] += 1
+            total_items += 1
+
+        return jsonify({
+            "success": True,
+            "po_number": po_number,
+            "packing_list": list(packing_list.values()),
+            "total_cartons": len(packing_list),
+            "total_items": total_items
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Generate packing list error: {str(e)}"})
+
+@app.route('/api/simple_packing/generate_pdf_packing_list', methods=['GET'])
+def generate_pdf_packing_list():
+    """Generate professional A4 packing list as HTML (printable as PDF)"""
+    try:
+        po_number = request.args.get('po_number', '').strip()
+
+        if not po_number:
+            return "PO number is required", 400
+
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get packed items grouped by carton
+        cursor.execute('''
+            SELECT carton_number, item_number, description, color, qty
+            FROM po_items
+            WHERE po_number = ? AND packed_status = 'packed' AND carton_number IS NOT NULL
+            ORDER BY carton_number ASC, item_number ASC
+        ''', (po_number,))
+
+        packed_items = cursor.fetchall()
+
+        # Get carton details
+        cursor.execute('''
+            SELECT carton_number, carton_size, actual_weight
+            FROM cartons
+            WHERE po_number = ?
+            ORDER BY carton_number ASC
+        ''', (po_number,))
+
+        carton_details = {row[0]: {'size': row[1], 'weight': row[2]} for row in cursor.fetchall()}
+
+        conn.close()
+
+        # Generate professional HTML packing list
+        html_content = generate_professional_packing_list_html(po_number, packed_items, carton_details)
+
+        return Response(html_content, mimetype='text/html')
+
+    except Exception as e:
+        return f"Error generating packing list: {str(e)}", 500
+
+def generate_professional_packing_list_html(po_number, packed_items, carton_details):
+    """Generate professional A4 packing list HTML"""
+
+    # Current date
+    current_date = datetime.now().strftime("%B %d, %Y")
+
+    # Group items by carton for merged cells
+    carton_groups = {}
+    for carton_num, item_num, desc, color, qty in packed_items:
+        if carton_num not in carton_groups:
+            carton_groups[carton_num] = []
+        carton_groups[carton_num].append({
+            'item_num': item_num,
+            'desc': desc,
+            'color': color,
+            'qty': qty
+        })
+
+    # Build table rows with merged cells
+    table_rows = ""
+    for carton_num in sorted(carton_groups.keys()):
+        items = carton_groups[carton_num]
+        carton_size = carton_details.get(carton_num, {}).get('size', 'Unknown')
+        carton_weight = carton_details.get(carton_num, {}).get('weight', 0)
+
+        # Calculate rowspan for merged cells
+        rowspan = len(items)
+
+        # First row with merged cells
+        first_item = items[0]
+        table_rows += f"""
+        <tr class="item-row">
+            <td class="carton-cell" rowspan="{rowspan}">{carton_num}</td>
+            <td class="carton-cell" rowspan="{rowspan}">{carton_size}</td>
+            <td class="carton-cell" rowspan="{rowspan}">{carton_weight}kg</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{first_item['desc']} ({first_item['color']})</td>
+            <td style="padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{first_item['qty']}</td>
+        </tr>
+        """
+
+        # Remaining rows (only item name and qty columns)
+        for item in items[1:]:
+            table_rows += f"""
+        <tr class="item-row">
+            <td style="padding: 8px; border: 1px solid #ddd;">{item['desc']} ({item['color']})</td>
+            <td style="padding: 8px; border: 1px solid #ddd; text-align: center; font-weight: bold;">{item['qty']}</td>
+        </tr>
+            """
+
+    total_cartons = len(set(item[0] for item in packed_items))
+    total_items = len(packed_items)
+
+    # Calculate total quantity with proper type conversion
+    total_qty = 0
+    for item in packed_items:
+        try:
+            qty = int(item[4]) if item[4] is not None else 0
+            total_qty += qty
+        except (ValueError, TypeError):
+            # Skip invalid quantities
+            continue
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Packing List - PO {po_number}</title>
+        <style>
+            @page {{
+                size: A4;
+                margin: 0.5in;
+            }}
+            body {{
+                font-family: Arial, sans-serif;
+                font-size: 12px;
+                line-height: 1.4;
+                margin: 0;
+                padding: 20px;
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 30px;
+                border-bottom: 2px solid #333;
+                padding-bottom: 20px;
+            }}
+            .company-info {{
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 30px;
+            }}
+            .bill-to, .ship-to {{
+                width: 45%;
+            }}
+            .info-title {{
+                font-weight: bold;
+                font-size: 14px;
+                margin-bottom: 10px;
+                color: #333;
+                border-bottom: 1px solid #ccc;
+                padding-bottom: 5px;
+            }}
+            .address-line {{
+                margin-bottom: 3px;
+            }}
+            .po-details {{
+                margin-bottom: 30px;
+                background: #f8f9fa;
+                padding: 20px;
+                border-radius: 8px;
+                border: 1px solid #ddd;
+                text-align: center;
+                font-size: 14px;
+                font-weight: bold;
+                color: #333;
+            }}
+            .items-table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 30px;
+            }}
+            .items-table th {{
+                background: #333;
+                color: white;
+                padding: 12px 8px;
+                border: 1px solid #ddd;
+                text-align: center;
+                font-weight: bold;
+            }}
+            .items-table td {{
+                padding: 8px;
+                border: 1px solid #ddd;
+                vertical-align: top;
+            }}
+            .items-table tr:nth-child(even) {{
+                background: #f9f9f9;
+            }}
+            .carton-cell {{
+                background: #e8f4fd !important;
+                font-weight: bold;
+                text-align: center;
+                vertical-align: middle;
+            }}
+            .item-row {{
+                border-left: 3px solid #007bff;
+            }}
+            .items-table tfoot td {{
+                font-weight: bold;
+                text-align: center;
+            }}
+            .total-header {{
+                background: #f8f9fa !important;
+                font-size: 14px;
+                border-top: 3px solid #333 !important;
+            }}
+            .total-row {{
+                background: #e8f4fd !important;
+                color: #333;
+            }}
+            .summary {{
+                text-align: right;
+                margin-bottom: 40px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
+            .signature-section {{
+                margin-top: 50px;
+                border-top: 1px solid #ccc;
+                padding-top: 20px;
+            }}
+            .signature-line {{
+                margin-bottom: 25px;
+                display: flex;
+                align-items: center;
+            }}
+            .signature-line label {{
+                display: inline-block;
+                width: 120px;
+                font-weight: bold;
+                margin-right: 15px;
+            }}
+            .signature-line input {{
+                border: none;
+                border-bottom: 2px solid #333;
+                width: 400px;
+                padding: 8px 0;
+                font-size: 14px;
+            }}
+            @media print {{
+                body {{ margin: 0; }}
+                .no-print {{ display: none; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1 style="margin: 0; font-size: 24px; color: #333;">📦 PACKING LIST</h1>
+            <p style="margin: 10px 0 0 0; font-size: 16px; color: #666;">Purchase Order: {po_number}</p>
+            <p style="margin: 5px 0 0 0; color: #666;">Date: {current_date}</p>
+        </div>
+
+        <div class="company-info">
+            <div class="bill-to">
+                <div class="info-title">BILL TO:</div>
+                <div class="address-line"><strong>ABC Manufacturing Corp</strong></div>
+                <div class="address-line">1234 Industrial Blvd, Suite 100</div>
+                <div class="address-line">Manufacturing District</div>
+                <div class="address-line">Los Angeles, CA 90210</div>
+                <div class="address-line">Tel: (555) 123-4567</div>
+                <div class="address-line"><strong>Contact:</strong> John Smith, Purchasing Manager</div>
+            </div>
+
+            <div class="ship-to">
+                <div class="info-title">SHIP TO:</div>
+                <div class="address-line"><strong>XYZ Retail Distribution Center</strong></div>
+                <div class="address-line">5678 Warehouse Drive, Building B</div>
+                <div class="address-line">Distribution Park</div>
+                <div class="address-line">Dallas, TX 75201</div>
+                <div class="address-line">Tel: (555) 987-6543</div>
+                <div class="address-line"><strong>Contact:</strong> Sarah Johnson, Warehouse Supervisor</div>
+            </div>
+        </div>
+
+        <div class="po-details">
+            Payment Terms: Net 30 Days | Delivery Date: January 15, 2025 | Total Cartons: {total_cartons} | Total Items: {total_items} | Total Qty: {total_qty} pieces
+        </div>
+
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th>CTN #</th>
+                    <th>CTN Size</th>
+                    <th>CTN Weight</th>
+                    <th>Item Name</th>
+                    <th>Qty</th>
+                </tr>
+            </thead>
+            <tbody>
+                {table_rows}
+            </tbody>
+        </table>
+
+        <div class="summary">
+            <p>Total Cartons: {total_cartons} | Total Items: {total_items} | Total Qty: {total_qty} pieces</p>
+        </div>
+
+        <div class="signature-section">
+            <h3 style="margin-bottom: 20px; color: #333; text-align: center;">RECIPIENT ACKNOWLEDGMENT</h3>
+
+            <div class="signature-line">
+                <label>Signature:</label>
+                <input type="text" style="width: 400px;">
+            </div>
+
+            <div class="signature-line">
+                <label>Print Name:</label>
+                <input type="text" style="width: 400px;">
+            </div>
+
+            <div class="signature-line">
+                <label>Company:</label>
+                <input type="text" style="width: 400px;">
+            </div>
+
+            <div class="signature-line">
+                <label>Title:</label>
+                <input type="text" style="width: 400px;">
+            </div>
+
+            <div class="signature-line">
+                <label>Date:</label>
+                <input type="text" style="width: 400px;">
+            </div>
+        </div>
+
+        <div class="no-print" style="text-align: center; margin-top: 30px;">
+            <button onclick="window.print()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">
+                🖨️ Print as PDF
+            </button>
+            <button onclick="window.close()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-left: 10px;">
+                Close
+            </button>
+        </div>
+    </body>
+    </html>
+    """
+
+    return html_content
 
 @app.route('/api/po_management/pack_items_realtime', methods=['POST'])
 def pack_items_realtime():
@@ -2879,7 +3279,7 @@ def get_carton_summary():
         return jsonify({"success": False, "message": f"Error getting carton summary: {str(e)}"})
 
 @app.route('/api/po_management/generate_packing_list', methods=['POST'])
-def generate_packing_list():
+def generate_packing_list_download():
     """Generate complete packing list for download"""
     try:
         data = request.json
@@ -6147,7 +6547,7 @@ HTML_TEMPLATE = """
 
                 if (result.success && result.is_complete) {
                     setTimeout(() => {
-                        alert('🎉 Finished! All items in PO ' + currentPOData.po_number + ' have been packed!');
+                        showPackingList();
                     }, 1000);
                 }
 
@@ -6155,6 +6555,33 @@ HTML_TEMPLATE = """
                 console.error('Error checking completion:', error);
             }
         }
+
+        // 8. Generate and Show Professional PDF Packing List
+        async function showPackingList() {
+            if (!currentPOData) return;
+
+            try {
+                // First get carton count for the alert
+                const response = await fetch(`/api/simple_packing/generate_packing_list?po_number=${currentPOData.po_number}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    // Show completion alert with carton count
+                    alert('🎉 Finished! All items in PO ' + currentPOData.po_number + ' have been packed! Total: ' + result.total_cartons + ' cartons created. Professional packing list will open in new window.');
+
+                    // Open professional PDF packing list in new window
+                    const pdfUrl = `/api/simple_packing/generate_pdf_packing_list?po_number=${currentPOData.po_number}`;
+                    window.open(pdfUrl, '_blank', 'width=800,height=1000,scrollbars=yes,resizable=yes');
+                } else {
+                    alert('Error generating packing list: ' + result.message);
+                }
+
+            } catch (error) {
+                alert('Error generating packing list: ' + error.message);
+            }
+        }
+
+
 
         // ===== OLD COMPLEX FUNCTIONS COMMENTED OUT =====
         /*
