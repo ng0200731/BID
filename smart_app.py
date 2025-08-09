@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.2.0"
-VERSION_DATE = "2025-08-05 20:25"
-LAST_EDIT = "Packing List Improvements: Remove pop-up, fix carton numbering (start from 1), add unique PL# generation, enable PDF download by PL#"
+VERSION = "3.2.1"
+VERSION_DATE = "2025-08-09 15:30"
+LAST_EDIT = "China Network Fix: Add browser-like headers to HTTP requests to avoid blocking in mainland China"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -1542,6 +1542,44 @@ def create_download_folder(po_number):
 
     return download_folder, f"download_artwork/{date_folder}/{po_folder}"
 
+def get_browser_headers():
+    """Get browser-like headers to avoid blocking in China"""
+    return {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0'
+    }
+
+def make_browser_request(url, timeout=30, **kwargs):
+    """Make HTTP request that looks like a real browser to avoid China blocking"""
+    import requests
+
+    headers = get_browser_headers()
+    if 'headers' in kwargs:
+        headers.update(kwargs['headers'])
+
+    # Add referer for BrandID requests
+    if 'brandid.com' in url:
+        headers['Referer'] = 'https://app.e-brandid.com/'
+
+    kwargs['headers'] = headers
+
+    try:
+        response = requests.get(url, timeout=timeout, **kwargs)
+        return response
+    except Exception as e:
+        print(f"❌ Request failed: {e}")
+        return None
+
 def download_item_artwork(item, download_folder, item_number):
     """Download PDF artwork using direct URL pattern - SUPER FAST METHOD"""
     import requests
@@ -1563,10 +1601,10 @@ def download_item_artwork(item, download_folder, item_number):
             # Use your super fast direct download method!
             pdf_url = f"https://app4.brandid.com/Artwork/{item_name}_{suffix_id}.pdf"
 
-            # Download the PDF directly
-            response = requests.get(pdf_url, timeout=30)
+            # Download the PDF directly with browser-like headers
+            response = make_browser_request(pdf_url, timeout=30)
 
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 pdf_filename = f"{item_name}_{suffix_id}.pdf"
                 pdf_path = os.path.join(download_folder, pdf_filename)
 
@@ -1653,9 +1691,9 @@ def download_super_fast(items, download_folder):
                 pdf_url = f"https://app4.brandid.com/Artwork/{item_name}_{suffix_id}.pdf"
                 download_status['log'].append(f"🔗 Trying: {pdf_url}")
 
-                response = requests.get(pdf_url, timeout=8)
+                response = make_browser_request(pdf_url, timeout=8)
 
-                if response.status_code == 200 and len(response.content) > 1000:  # Valid PDF should be > 1KB
+                if response and response.status_code == 200 and len(response.content) > 1000:  # Valid PDF should be > 1KB
                     pdf_filename = f"{item_name}_{suffix_id}.pdf"
                     pdf_path = os.path.join(download_folder, pdf_filename)
 
@@ -1978,8 +2016,8 @@ def download_guaranteed_complete(po_number, items, download_folder):
             download_status['progress'] = progress
 
             try:
-                response = requests.get(pdf_url, timeout=10)
-                if response.status_code == 200:
+                response = make_browser_request(pdf_url, timeout=10)
+                if response and response.status_code == 200:
                     # Generate unique filename with smart numbering
                     final_filename = get_unique_filename(original_filename, download_folder, downloaded_files)
 
