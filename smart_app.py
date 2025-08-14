@@ -1384,11 +1384,13 @@ def get_po_data(po_number):
 
                             item_data.append({
                                 'name': item_number,
+                                'item_number': item_number,  # Add for consistency with JavaScript
                                 'description': description,  # Keep description separate from color
                                 'color': color,
                                 'ship_to': ship_to,
                                 'need_by': need_by,
                                 'quantity': quantity,
+                                'qty': quantity,  # Add for consistency with JavaScript
                                 'bundle_qty': bundle_qty,
                                 'unit_price': unit_price,
                                 'extension': extension,
@@ -2667,8 +2669,8 @@ def reset_database():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
-        # Reset all items to not_packed status
-        cursor.execute("UPDATE po_items SET packed_status = 'not_packed'")
+        # Reset all items to not_packed status and clear carton numbers
+        cursor.execute("UPDATE po_items SET packed_status = 'not_packed', carton_number = NULL")
 
         conn.commit()
         conn.close()
@@ -6944,9 +6946,10 @@ HTML_TEMPLATE = """
                 if (result.success) {
                     statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ ' + result.message + '</div>';
 
-                    // Update items status in memory
+                    // Update items status and carton number in memory
                     selectedItems.forEach(index => {
                         currentPOData.items[index].packed_status = 'packed';
+                        currentPOData.items[index].carton_number = result.carton_number;
                     });
 
                     // Clear selections and refresh display
