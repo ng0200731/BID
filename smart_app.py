@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.2.1"
-VERSION_DATE = "2025-08-09 15:30"
-LAST_EDIT = "China Network Fix: Add browser-like headers to HTTP requests to avoid blocking in mainland China"
+VERSION = "3.2.2"
+VERSION_DATE = "2025-08-14 00:00"
+LAST_EDIT = "Add Inspection Report column to Update Delivery Date tab with Excel QC report generation"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -26,6 +26,8 @@ import re
 import sqlite3
 from datetime import datetime
 import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
 
 def update_version(new_version, edit_description):
     """Helper function to update version info - USE THIS FOR EVERY EDIT"""
@@ -953,6 +955,113 @@ def analyze_po_and_recommend(po_number, item_count, item_names):
     recommendations.sort(key=lambda x: x['score'], reverse=True)
     return recommendations
 
+def get_sample_quantity(order_qty):
+    """Calculate sample quantity based on order quantity using lookup table"""
+    lookup_table = [
+        (15, 2), (25, 3), (90, 5), (150, 8), (280, 13),
+        (500, 20), (1200, 32), (3200, 50), (10000, 80),
+        (35000, 125), (150000, 200), (500000, 315), (100000000, 500)
+    ]
+
+    for max_qty, sample_qty in lookup_table:
+        if order_qty <= max_qty:
+            return sample_qty
+    return 500  # Default for quantities > 500000
+
+def generate_qc_report_from_database(po_number):
+    """Generate QC inspection report Excel file from database data"""
+    try:
+        # Connect to database and fetch PO data
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get all items for this PO
+        cursor.execute('SELECT * FROM po_items WHERE po_number = ? ORDER BY id', (po_number,))
+        items = cursor.fetchall()
+
+        if not items:
+            conn.close()
+            return {'success': False, 'error': f'No items found for PO {po_number}'}
+
+        # Get column names
+        cursor.execute('PRAGMA table_info(po_items)')
+        columns = [column[1] for column in cursor.fetchall()]
+        conn.close()
+
+        # Convert to list of dictionaries
+        items_data = []
+        for item in items:
+            item_dict = dict(zip(columns, item))
+            items_data.append(item_dict)
+
+        # Create report directory if it doesn't exist
+        report_dir = os.path.join('report', 'qc_report')
+        os.makedirs(report_dir, exist_ok=True)
+
+        # Create filename with current date and PO number
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        filename = f"{current_date}_{po_number}.xlsx"
+        filepath = os.path.join(report_dir, filename)
+
+        # Create workbook and worksheet
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "QC Report"
+
+        # Headers
+        headers = [
+            "WO#", "ITEM NO.", "ORDER QUANTITY (PCS)",
+            "NUMBER OF SAMPLE (PCS)", "PASSED QUANTITY (PCS)", "REJECTED QUANTITY (PCS)"
+        ]
+
+        # Style headers
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal='center')
+
+        # Add data rows
+        for row_idx, item in enumerate(items_data, 2):
+            # Map database fields to Excel columns
+            wo_number = po_number  # WO# column shows PO number
+            item_no = item.get('item_number', '') or item.get('description', '')
+
+            # Handle comma-separated numbers (e.g., "1,458" -> 1458)
+            qty_str = str(item.get('qty', 0) or 0)
+            try:
+                order_qty = int(qty_str.replace(',', ''))
+            except (ValueError, AttributeError):
+                order_qty = 0
+
+            sample_qty = get_sample_quantity(order_qty)
+
+            ws.cell(row=row_idx, column=1, value=wo_number)  # PO number in WO# column
+            ws.cell(row=row_idx, column=2, value=item_no)    # Item number in ITEM NO. column
+            ws.cell(row=row_idx, column=3, value=order_qty)  # Order quantity
+            ws.cell(row=row_idx, column=4, value=sample_qty) # Sample quantity
+            ws.cell(row=row_idx, column=5, value=sample_qty) # PASSED = SAMPLE
+            ws.cell(row=row_idx, column=6, value=0)          # REJECTED = 0
+
+        # Auto-adjust column widths
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+
+        # Save the file
+        wb.save(filepath)
+        return {'success': True, 'filename': filename, 'filepath': filepath}
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
 def get_po_data(po_number):
     """Get PO data from E-BrandID"""
     
@@ -1306,6 +1415,25 @@ def analyze_po():
         return jsonify(result)
     else:
         return jsonify(result), 500
+
+@app.route('/api/download_qc_report/<filename>')
+def download_qc_report(filename):
+    """Generate and download QC report Excel file from database"""
+    try:
+        # Extract PO number from filename (format: YYYY-MM-DD_PONUMBER.xlsx)
+        po_number = filename.split('_')[1].replace('.xlsx', '')
+
+        # Generate QC report from database
+        result = generate_qc_report_from_database(po_number)
+
+        if result['success']:
+            filepath = result['filepath']
+            return send_file(filepath, as_attachment=True, download_name=filename)
+        else:
+            return jsonify({'error': result['error']}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/test_login')
 def test_login():
@@ -5361,6 +5489,7 @@ HTML_TEMPLATE = """
                             <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">Items</th>
                             <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">Cancel Date</th>
                             <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">Saved Date</th>
+                            <th style="padding: 12px; text-align: center; border-right: 1px solid #dee2e6; background: #f8f9fa;">Inspection Report</th>
                             <th style="padding: 12px; text-align: center; background: #f8f9fa;">Action</th>
                         </tr>
                     </thead>
@@ -5369,6 +5498,9 @@ HTML_TEMPLATE = """
 
             pos.forEach(po => {
                 const savedDate = new Date(po.created_date).toLocaleDateString();
+                const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+                const qcReportFilename = `${currentDate}_${po.po_number}.xlsx`;
+
                 html += `
                     <tr style="border-bottom: 1px solid #dee2e6; cursor: pointer;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
                         <td style="padding: 12px; border-right: 1px solid #dee2e6;"><strong>${po.po_number}</strong></td>
@@ -5376,6 +5508,13 @@ HTML_TEMPLATE = """
                         <td style="padding: 12px; border-right: 1px solid #dee2e6; text-align: center;">${po.item_count}</td>
                         <td style="padding: 12px; border-right: 1px solid #dee2e6;">${po.cancel_date || 'N/A'}</td>
                         <td style="padding: 12px; border-right: 1px solid #dee2e6;">${savedDate}</td>
+                        <td style="padding: 12px; border-right: 1px solid #dee2e6; text-align: center;">
+                            <a href="/api/download_qc_report/${qcReportFilename}"
+                               style="color: #007bff; text-decoration: none; font-size: 12px;"
+                               title="Download QC Report for ${po.po_number}">
+                                📊 Download
+                            </a>
+                        </td>
                         <td style="padding: 12px; text-align: center;">
                             <button onclick="selectPOForDelivery('${po.po_number}')" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer;">
                                 📅 Select
