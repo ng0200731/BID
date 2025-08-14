@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.2.2"
+VERSION = "3.2.6"
 VERSION_DATE = "2025-08-14 00:00"
-LAST_EDIT = "Add Inspection Report column to Update Delivery Date tab with Excel QC report generation"
+LAST_EDIT = "Update file naming: QC reports as -qc.xlsx, Stickers as -sticker.xlsx"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -1000,7 +1000,7 @@ def generate_qc_report_from_database(po_number):
 
         # Create filename with current date and PO number
         current_date = datetime.now().strftime("%Y-%m-%d")
-        filename = f"{current_date}_{po_number}.xlsx"
+        filename = f"{current_date}-{po_number}-qc.xlsx"
         filepath = os.path.join(report_dir, filename)
 
         # Create workbook and worksheet
@@ -1054,6 +1054,83 @@ def generate_qc_report_from_database(po_number):
                     pass
             adjusted_width = min(max_length + 2, 50)
             ws.column_dimensions[column_letter].width = adjusted_width
+
+        # Save the file
+        wb.save(filepath)
+        return {'success': True, 'filename': filename, 'filepath': filepath}
+
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def generate_sticker_file(po_number):
+    """Generate sticker XLSX file from database data"""
+    try:
+        # Connect to database and fetch PO data
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Get all items for this PO
+        cursor.execute('SELECT * FROM po_items WHERE po_number = ? ORDER BY id', (po_number,))
+        items = cursor.fetchall()
+
+        if not items:
+            conn.close()
+            return {'success': False, 'error': f'No items found for PO {po_number}'}
+
+        # Get column names
+        cursor.execute('PRAGMA table_info(po_items)')
+        columns = [column[1] for column in cursor.fetchall()]
+        conn.close()
+
+        # Convert to list of dictionaries
+        items_data = []
+        for item in items:
+            item_dict = dict(zip(columns, item))
+            items_data.append(item_dict)
+
+        # Create report directory if it doesn't exist
+        report_dir = os.path.join('report', 'qc_report')
+        os.makedirs(report_dir, exist_ok=True)
+
+        # Create filename with current date and PO number
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        filename = f"{current_date}-{po_number}-sticker.xlsx"
+        filepath = os.path.join(report_dir, filename)
+
+        # Create workbook and worksheet
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Stickers"
+
+        # Set column widths (8 columns: A, B, C, D, E, F, G, H)
+        column_widths = [0.71, 17.6, 0.41, 17.6, 0.41, 17.6, 0.41, 17.6]
+        for col_idx, width in enumerate(column_widths, 1):
+            col_letter = chr(64 + col_idx)  # A=65, B=66, etc.
+            ws.column_dimensions[col_letter].width = width
+
+        # Fill stickers in 4-column layout (B, D, F, H columns)
+        sticker_columns = [2, 4, 6, 8]  # B, D, F, H
+        items_per_row = 4
+
+        for item_idx, item in enumerate(items_data):
+            # Calculate row and column position
+            row_num = (item_idx // items_per_row) + 1
+            col_idx = item_idx % items_per_row
+            col_num = sticker_columns[col_idx]
+
+            # Set row height
+            ws.row_dimensions[row_num].height = 40.8
+
+            # Get item data
+            item_number = item.get('item_number', '') or item.get('description', '')
+
+            # Create sticker content (3 lines separated by line breaks)
+            sticker_content = f"PO#{po_number}\nITEM: {item_number}\nWS: tba"
+
+            # Set cell content with font formatting
+            cell = ws.cell(row=row_num, column=col_num, value=sticker_content)
+            cell.alignment = Alignment(wrap_text=True, vertical='top')
+            cell.font = Font(name='新細明體', size=8)
 
         # Save the file
         wb.save(filepath)
@@ -1420,11 +1497,30 @@ def analyze_po():
 def download_qc_report(filename):
     """Generate and download QC report Excel file from database"""
     try:
-        # Extract PO number from filename (format: YYYY-MM-DD_PONUMBER.xlsx)
-        po_number = filename.split('_')[1].replace('.xlsx', '')
+        # Extract PO number from filename (format: YYYY-MM-DD-PONUMBER-qc.xlsx)
+        po_number = filename.replace('.xlsx', '').split('-')[-2]  # Get second to last part
 
         # Generate QC report from database
         result = generate_qc_report_from_database(po_number)
+
+        if result['success']:
+            filepath = result['filepath']
+            return send_file(filepath, as_attachment=True, download_name=filename)
+        else:
+            return jsonify({'error': result['error']}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/download_sticker/<filename>')
+def download_sticker(filename):
+    """Generate and download sticker XLSX file from database"""
+    try:
+        # Extract PO number from filename (format: YYYY-MM-DD-PONUMBER-sticker.xlsx)
+        po_number = filename.replace('.xlsx', '').split('-')[-2]  # Get second to last part
+
+        # Generate sticker file from database
+        result = generate_sticker_file(po_number)
 
         if result['success']:
             filepath = result['filepath']
@@ -5490,6 +5586,7 @@ HTML_TEMPLATE = """
                             <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">Cancel Date</th>
                             <th style="padding: 12px; text-align: left; border-right: 1px solid #dee2e6; background: #f8f9fa;">Saved Date</th>
                             <th style="padding: 12px; text-align: center; border-right: 1px solid #dee2e6; background: #f8f9fa;">Inspection Report</th>
+                            <th style="padding: 12px; text-align: center; border-right: 1px solid #dee2e6; background: #f8f9fa;">Sticker</th>
                             <th style="padding: 12px; text-align: center; background: #f8f9fa;">Action</th>
                         </tr>
                     </thead>
@@ -5499,7 +5596,8 @@ HTML_TEMPLATE = """
             pos.forEach(po => {
                 const savedDate = new Date(po.created_date).toLocaleDateString();
                 const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-                const qcReportFilename = `${currentDate}_${po.po_number}.xlsx`;
+                const qcReportFilename = `${currentDate}-${po.po_number}-qc.xlsx`;
+                const stickerFilename = `${currentDate}-${po.po_number}-sticker.xlsx`;
 
                 html += `
                     <tr style="border-bottom: 1px solid #dee2e6; cursor: pointer;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
@@ -5513,6 +5611,13 @@ HTML_TEMPLATE = """
                                style="color: #007bff; text-decoration: none; font-size: 12px;"
                                title="Download QC Report for ${po.po_number}">
                                 📊 Download
+                            </a>
+                        </td>
+                        <td style="padding: 12px; border-right: 1px solid #dee2e6; text-align: center;">
+                            <a href="/api/download_sticker/${stickerFilename}"
+                               style="color: #28a745; text-decoration: none; font-size: 12px;"
+                               title="Download Sticker File for ${po.po_number}">
+                                🏷️ Download
                             </a>
                         </td>
                         <td style="padding: 12px; text-align: center;">
