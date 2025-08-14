@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.2.6"
+VERSION = "3.3.0"
 VERSION_DATE = "2025-08-14 00:00"
-LAST_EDIT = "Update file naming: QC reports as -qc.xlsx, Stickers as -sticker.xlsx"
+LAST_EDIT = "Fix packing by getting data directly from database instead of corrupted frontend data"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -296,6 +296,115 @@ def init_database():
     conn.close()
     print("📊 Database initialized successfully")
 
+    # Clean up any existing comma-separated numbers
+    cleanup_database_numbers()
+
+    # Debug: Check PO 1288138 data
+    debug_po_1288138()
+
+def clean_number_format(value):
+    """Remove commas from numbers and return clean string for database storage"""
+    if value is None:
+        return '0'
+
+    # Convert to string and remove commas
+    clean_value = str(value).replace(',', '').strip()
+
+    # Handle empty strings
+    if not clean_value:
+        return '0'
+
+    # Validate it's a valid number
+    try:
+        # Try to convert to float first (handles decimals)
+        float(clean_value)
+        return clean_value
+    except ValueError:
+        # If not a valid number, return '0'
+        return '0'
+
+def cleanup_database_numbers():
+    """Clean up all comma-separated numbers in existing database"""
+    print("🧹 Starting database cleanup for comma-separated numbers...")
+
+    try:
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        # Clean po_items table
+        print("🧹 Cleaning po_items table...")
+        cursor.execute('SELECT id, qty, unit_price, extension FROM po_items')
+        items = cursor.fetchall()
+
+        for item_id, qty, unit_price, extension in items:
+            clean_qty = clean_number_format(qty)
+            clean_unit_price = clean_number_format(unit_price)
+            clean_extension = clean_number_format(extension)
+
+            cursor.execute('''
+                UPDATE po_items
+                SET qty = ?, unit_price = ?, extension = ?
+                WHERE id = ?
+            ''', (clean_qty, clean_unit_price, clean_extension, item_id))
+
+        # Clean cartons table
+        print("🧹 Cleaning cartons table...")
+        cursor.execute('SELECT id, actual_weight FROM cartons')
+        cartons = cursor.fetchall()
+
+        for carton_id, weight in cartons:
+            clean_weight = clean_number_format(weight)
+            cursor.execute('UPDATE cartons SET actual_weight = ? WHERE id = ?', (clean_weight, carton_id))
+
+        # Clean packing_lists table
+        print("🧹 Cleaning packing_lists table...")
+        cursor.execute('SELECT id, total_cartons, total_items, total_qty FROM packing_lists')
+        packing_lists = cursor.fetchall()
+
+        for pl_id, total_cartons, total_items, total_qty in packing_lists:
+            clean_cartons = clean_number_format(total_cartons)
+            clean_items = clean_number_format(total_items)
+            clean_qty = clean_number_format(total_qty)
+
+            cursor.execute('''
+                UPDATE packing_lists
+                SET total_cartons = ?, total_items = ?, total_qty = ?
+                WHERE id = ?
+            ''', (clean_cartons, clean_items, clean_qty, pl_id))
+
+        conn.commit()
+        conn.close()
+        print("✅ Database cleanup completed successfully!")
+
+    except Exception as e:
+        print(f"❌ Database cleanup error: {str(e)}")
+
+def debug_po_1288138():
+    """Debug function to check PO 1288138 data"""
+    try:
+        conn = sqlite3.connect('po_database.db')
+        cursor = conn.cursor()
+
+        print("🔍 DEBUG: Checking PO 1288138 data...")
+
+        # Check po_items table
+        cursor.execute('SELECT * FROM po_items WHERE po_number = ?', ('1288138',))
+        items = cursor.fetchall()
+
+        # Get column names
+        cursor.execute('PRAGMA table_info(po_items)')
+        columns = [column[1] for column in cursor.fetchall()]
+
+        print(f"🔍 Found {len(items)} items for PO 1288138:")
+        for i, item in enumerate(items):
+            item_dict = dict(zip(columns, item))
+            print(f"  Item {i}: {item_dict}")
+
+        conn.close()
+
+    except Exception as e:
+        print(f"❌ Debug error: {str(e)}")
+
 def generate_pl_number():
     """Generate unique packing list number in format PL0000001"""
     conn = sqlite3.connect('po_database.db')
@@ -524,14 +633,20 @@ def save_po_to_database(po_number, po_header, po_items, overwrite=False):
             print(f"⚠️ PO {po_number} already exists in database")
             return False
 
-        # Insert PO items
+        # Insert PO items with cleaned numbers
         for item in po_items:
+            # Clean numeric fields before database insertion
+            clean_qty = clean_number_format(item.get('qty', ''))
+            clean_bundle_qty = clean_number_format(item.get('bundle_qty', ''))
+            clean_unit_price = clean_number_format(item.get('unit_price', ''))
+            clean_extension = clean_number_format(item.get('extension', ''))
+
             cursor.execute('''
                 INSERT INTO po_items (po_number, item_number, description, color, ship_to, need_by, qty, bundle_qty, unit_price, extension)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (po_number, item.get('item_number', ''), item.get('description', ''), item.get('color', ''),
-                  item.get('ship_to', ''), item.get('need_by', ''), item.get('qty', ''),
-                  item.get('bundle_qty', ''), item.get('unit_price', ''), item.get('extension', '')))
+                  item.get('ship_to', ''), item.get('need_by', ''), clean_qty,
+                  clean_bundle_qty, clean_unit_price, clean_extension))
 
         conn.commit()
         return True
@@ -2792,11 +2907,12 @@ def pack_items_simple():
         from datetime import datetime
         barcode = f"{po_number}-{carton_number}-{datetime.now().strftime('%Y%m%d')}"
 
-        # Create carton record
+        # Create carton record with cleaned weight
+        clean_weight = clean_number_format(carton_weight)
         cursor.execute('''
             INSERT INTO cartons (po_number, carton_number, carton_size, actual_weight, barcode, packing_option)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (po_number, carton_number, carton_type, carton_weight, barcode, "Option A"))
+        ''', (po_number, carton_number, carton_type, clean_weight, barcode, "Option A"))
 
         carton_id = cursor.lastrowid
 
@@ -3000,12 +3116,25 @@ def generate_pdf_packing_list():
             # Save PL data to database
             total_cartons = len(unique_cartons)
             total_items = len(packed_items)
-            total_qty = sum([int(item[4]) for item in packed_items])
+            # Handle comma-separated quantities (e.g., "1,057" -> 1057)
+            total_qty = 0
+            for item in packed_items:
+                qty_str = str(item[4])
+                try:
+                    qty = int(qty_str.replace(',', ''))
+                    total_qty += qty
+                except (ValueError, AttributeError):
+                    pass  # Skip invalid quantities
+
+            # Clean numeric values before database insertion
+            clean_total_cartons = clean_number_format(total_cartons)
+            clean_total_items = clean_number_format(total_items)
+            clean_total_qty = clean_number_format(total_qty)
 
             cursor.execute('''
                 INSERT INTO packing_lists (pl_number, po_number, total_cartons, total_items, total_qty)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (pl_number, po_number, total_cartons, total_items, total_qty))
+            ''', (pl_number, po_number, clean_total_cartons, clean_total_items, clean_total_qty))
 
             # Update po_items with PL number
             cursor.execute('''
@@ -3084,9 +3213,11 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
     total_qty = 0
     for item in packed_items:
         try:
-            qty = int(item[4]) if item[4] is not None else 0
+            # Handle comma-separated quantities (e.g., "8,256" -> 8256)
+            qty_str = str(item[4]) if item[4] is not None else '0'
+            qty = int(qty_str.replace(',', ''))
             total_qty += qty
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, AttributeError):
             # Skip invalid quantities
             continue
 
@@ -3377,17 +3508,30 @@ def download_pdf_by_pl():
 
 @app.route('/api/po_management/pack_items_realtime', methods=['POST'])
 def pack_items_realtime():
-    """Real-time packing: immediately mark items as packed and assign carton number"""
+    """Real-time packing: get data directly from database to avoid frontend corruption"""
     try:
         data = request.json
         po_number = data.get('po_number', '').strip()
-        selected_items = data.get('selected_items', [])
+        selected_item_ids = data.get('selected_item_ids', [])  # Just send item IDs, not full data
 
-        if not po_number or not selected_items:
-            return jsonify({"success": False, "message": "PO number and selected items are required"})
+        if not po_number or not selected_item_ids:
+            return jsonify({"success": False, "message": "PO number and selected item IDs are required"})
 
         conn = sqlite3.connect('po_database.db')
         cursor = conn.cursor()
+
+        # Get actual item data directly from database (clean data, no NaN possible)
+        placeholders = ','.join(['?' for _ in selected_item_ids])
+        cursor.execute(f'''
+            SELECT id, item_number, description, color, qty
+            FROM po_items
+            WHERE po_number = ? AND id IN ({placeholders})
+        ''', [po_number] + selected_item_ids)
+
+        database_items = cursor.fetchall()
+
+        if not database_items:
+            return jsonify({"success": False, "message": "No valid items found in database"})
 
         # Get next carton number (sequential: 1, 2, 3...)
         cursor.execute('SELECT COUNT(*) FROM cartons WHERE po_number = ?', (po_number,))
@@ -3403,15 +3547,17 @@ def pack_items_realtime():
 
         carton_id = cursor.lastrowid
 
-        # Mark items as packed and assign carton
-        for item in selected_items:
+        # Mark items as packed using clean database data
+        for item_id, item_number, description, color, qty in database_items:
+            # Clean the quantity value
+            clean_qty = clean_number_format(qty)
+
             cursor.execute('''
                 INSERT INTO carton_items (carton_id, po_number, item_number, description, color,
                                         packed_qty, original_qty, packed_status, carton_number)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (carton_id, po_number, item['item_number'], item['description'],
-                  item.get('color', ''), item['packed_qty'], item['original_qty'],
-                  'packed', carton_number))
+            ''', (carton_id, po_number, item_number, description, color or '',
+                  clean_qty, clean_qty, 'packed', carton_number))
 
         conn.commit()
         conn.close()
@@ -3421,7 +3567,7 @@ def pack_items_realtime():
             "carton_number": carton_number,
             "barcode": barcode,
             "carton_id": carton_id,
-            "packed_items": len(selected_items)
+            "packed_items": len(database_items)
         })
 
     except Exception as e:
@@ -3498,12 +3644,13 @@ def create_cartons():
             carton_number = str(existing_count + i + 1)
             barcode = f"{po_number}-{carton_number}-{datetime.now().strftime('%Y%m%d')}"
 
-            # Insert carton with enhanced data
+            # Insert carton with enhanced data and cleaned weight
+            clean_weight = clean_number_format(carton_data.get('weight', 0))
             cursor.execute('''
                 INSERT INTO cartons (po_number, carton_number, carton_size, actual_weight, barcode, packing_option)
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (po_number, carton_number, carton_data.get('size', 'Standard'),
-                  carton_data.get('weight', 0), barcode, f"Option {packing_option}"))
+                  clean_weight, barcode, f"Option {packing_option}"))
 
             carton_id = cursor.lastrowid
 
@@ -7509,7 +7656,7 @@ HTML_TEMPLATE = """
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         po_number: currentPOData.po_number,
-                        selected_items: selectedItems
+                        selected_item_ids: selectedItemIds  // Send only IDs, backend gets clean data from database
                     })
                 });
 
@@ -7609,24 +7756,19 @@ HTML_TEMPLATE = """
                 return;
             }
 
-            let selectedItems = [];
+            let selectedItemIds = [];
             checkboxes.forEach((cb, index) => {
                 if (cb.checked) {
                     const item = currentPOData.items[index];
-                    selectedItems.push({
-                        item_number: item.item_number,
-                        description: item.description,
-                        color: item.color || '',
-                        packed_qty: item.finished_qty || item.qty,
-                        original_qty: item.qty
-                    });
-                    console.log('✅ Selected item:', item.item_number, 'qty:', item.finished_qty || item.qty);
+                    // Send only the database ID, let backend get clean data from database
+                    selectedItemIds.push(item.id);
+                    console.log('✅ Selected item ID:', item.id, 'item_number:', item.item_number);
                 }
             });
 
-            console.log('📋 Selected items:', selectedItems);
+            console.log('📋 Selected item IDs:', selectedItemIds);
 
-            if (selectedItems.length === 0) {
+            if (selectedItemIds.length === 0) {
                 feedbackDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please select at least one item to pack</div>';
                 button.disabled = false;
                 button.innerHTML = '📦 Create Carton';
