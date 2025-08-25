@@ -1,0 +1,20 @@
+# Requirements for building executable
+# Install these before running build_exe.py
+
+# Core build tool
+pyinstaller==6.2.0
+
+# Existing app requirements (from requirements.txt)
+flask==3.1.1
+requests==2.32.4
+beautifulsoup4==4.13.4
+lxml==6.0.0
+selenium==4.34.2
+webdriver-manager==4.0.2
+pillow==11.3.0
+pandas==2.2.2
+openpyxl==3.1.5
+urllib3==2.5.0
+
+# Additional for executable
+auto-py-to-exe==2.43.3  # Optional GUI for PyInstaller

@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.5.0"
+VERSION = "3.4.0"
 VERSION_DATE = "2025-08-15 00:00"
-LAST_EDIT = "Fix folder opening: Open Folder button + auto-open after downloads"
+LAST_EDIT = "Add executable with user folder selection for downloads and reports"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -35,7 +35,7 @@ def update_version(new_version, edit_description):
     VERSION = new_version
     VERSION_DATE = datetime.now().strftime("%Y-%m-%d %H:%M")
     LAST_EDIT = edit_description
-    print(f"📝 Version updated to {VERSION} - {edit_description}")
+    print(f" Version updated to {VERSION} - {edit_description}")
 
 def mask_email(email):
     """Mask email address: prefix shows first 2 chars, suffix shows first 1 char"""
@@ -61,7 +61,7 @@ def mask_email(email):
 # Database functions
 def init_database():
     """Initialize SQLite database for PO storage"""
-    conn = sqlite3.connect('po_database.db')
+    conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
     cursor = conn.cursor()
 
     # Create PO headers table
@@ -294,7 +294,7 @@ def init_database():
 
     conn.commit()
     conn.close()
-    print("📊 Database initialized successfully")
+    print(" Database initialized successfully")
 
     # Clean up any existing comma-separated numbers
     cleanup_database_numbers()
@@ -325,14 +325,14 @@ def clean_number_format(value):
 
 def cleanup_database_numbers():
     """Clean up all comma-separated numbers in existing database"""
-    print("🧹 Starting database cleanup for comma-separated numbers...")
+    print(" Starting database cleanup for comma-separated numbers...")
 
     try:
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Clean po_items table
-        print("🧹 Cleaning po_items table...")
+        print(" Cleaning po_items table...")
         cursor.execute('SELECT id, qty, unit_price, extension FROM po_items')
         items = cursor.fetchall()
 
@@ -348,7 +348,7 @@ def cleanup_database_numbers():
             ''', (clean_qty, clean_unit_price, clean_extension, item_id))
 
         # Clean cartons table
-        print("🧹 Cleaning cartons table...")
+        print(" Cleaning cartons table...")
         cursor.execute('SELECT id, actual_weight FROM cartons')
         cartons = cursor.fetchall()
 
@@ -357,7 +357,7 @@ def cleanup_database_numbers():
             cursor.execute('UPDATE cartons SET actual_weight = ? WHERE id = ?', (clean_weight, carton_id))
 
         # Clean packing_lists table
-        print("🧹 Cleaning packing_lists table...")
+        print(" Cleaning packing_lists table...")
         cursor.execute('SELECT id, total_cartons, total_items, total_qty FROM packing_lists')
         packing_lists = cursor.fetchall()
 
@@ -374,18 +374,18 @@ def cleanup_database_numbers():
 
         conn.commit()
         conn.close()
-        print("✅ Database cleanup completed successfully!")
+        print(" Database cleanup completed successfully!")
 
     except Exception as e:
-        print(f"❌ Database cleanup error: {str(e)}")
+        print(f" Database cleanup error: {str(e)}")
 
 def debug_po_1288138():
     """Debug function to check PO 1288138 data"""
     try:
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
-        print("🔍 DEBUG: Checking PO 1288138 data...")
+        print(" DEBUG: Checking PO 1288138 data...")
 
         # Check po_items table
         cursor.execute('SELECT * FROM po_items WHERE po_number = ?', ('1288138',))
@@ -395,7 +395,7 @@ def debug_po_1288138():
         cursor.execute('PRAGMA table_info(po_items)')
         columns = [column[1] for column in cursor.fetchall()]
 
-        print(f"🔍 Found {len(items)} items for PO 1288138:")
+        print(f" Found {len(items)} items for PO 1288138:")
         for i, item in enumerate(items):
             item_dict = dict(zip(columns, item))
             print(f"  Item {i}: {item_dict}")
@@ -403,11 +403,11 @@ def debug_po_1288138():
         conn.close()
 
     except Exception as e:
-        print(f"❌ Debug error: {str(e)}")
+        print(f" Debug error: {str(e)}")
 
 def generate_pl_number():
     """Generate unique packing list number in format PL0000001"""
-    conn = sqlite3.connect('po_database.db')
+    conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
     cursor = conn.cursor()
 
     # Get the highest existing PL number
@@ -429,7 +429,7 @@ def generate_pl_number():
 
 def create_sample_po_data():
     """Create sample PO data for testing"""
-    conn = sqlite3.connect('po_database.db')
+    conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
     cursor = conn.cursor()
 
     # Check if sample data already exists
@@ -531,11 +531,11 @@ def create_sample_po_data():
 
     conn.commit()
     conn.close()
-    print("✅ Sample PO data created successfully!")
+    print(" Sample PO data created successfully!")
 
 def check_po_exists(po_number):
     """Check if PO already exists in database"""
-    conn = sqlite3.connect('po_database.db')
+    conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
     cursor = conn.cursor()
     cursor.execute('SELECT COUNT(*) FROM po_headers WHERE po_number = ?', (po_number,))
     exists = cursor.fetchone()[0] > 0
@@ -546,7 +546,7 @@ def save_po_to_database(po_number, po_header, po_items, overwrite=False):
     """Save complete PO data to database with tracking"""
     from datetime import datetime
 
-    conn = sqlite3.connect('po_database.db')
+    conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
     cursor = conn.cursor()
 
     try:
@@ -595,7 +595,7 @@ def save_po_to_database(po_number, po_header, po_items, overwrite=False):
                 new_update_count     # Increment update_count
             ))
 
-            print(f"📊 PO {po_number} updated in database (Update #{new_update_count})")
+            print(f" PO {po_number} updated in database (Update #{new_update_count})")
 
         elif not existing_record:
             # New PO - first time saving
@@ -627,10 +627,10 @@ def save_po_to_database(po_number, po_header, po_items, overwrite=False):
                 0              # update_count starts at 0
             ))
 
-            print(f"📊 PO {po_number} saved to database for first time")
+            print(f" PO {po_number} saved to database for first time")
         else:
             # PO exists but overwrite=False
-            print(f"⚠️ PO {po_number} already exists in database")
+            print(f" PO {po_number} already exists in database")
             return False
 
         # Insert PO items with cleaned numbers
@@ -653,14 +653,14 @@ def save_po_to_database(po_number, po_header, po_items, overwrite=False):
 
     except Exception as e:
         conn.rollback()
-        print(f"❌ Error saving PO to database: {e}")
+        print(f" Error saving PO to database: {e}")
         return False
     finally:
         conn.close()
 
 def get_master_report_data(limit=20, search_filters=None):
     """Get master report data combining PO headers and items with search functionality"""
-    conn = sqlite3.connect('po_database.db')
+    conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
     cursor = conn.cursor()
 
     try:
@@ -789,7 +789,7 @@ def get_master_report_data(limit=20, search_filters=None):
         }
 
     except Exception as e:
-        print(f"❌ Error getting master report data: {e}")
+        print(f" Error getting master report data: {e}")
         return {
             'success': False,
             'error': str(e),
@@ -826,7 +826,7 @@ def scrape_po_details(po_number):
         driver = webdriver.Chrome(service=service, options=chrome_options)
         wait = WebDriverWait(driver, 15)
 
-        print(f"🔍 Scraping PO details for {po_number}...")
+        print(f" Scraping PO details for {po_number}...")
 
         # Login first (same as working functions)
         driver.get(config['login_url'])
@@ -841,20 +841,20 @@ def scrape_po_details(po_number):
         login_button.click()
         wait.until(lambda d: "login" not in d.current_url.lower())
 
-        print(f"✅ Login successful for PO scraping")
+        print(f" Login successful for PO scraping")
 
         # Navigate to PO detail page
         po_url = f"https://app.e-brandid.com/Bidnet/bidnet3/factoryPODetail.aspx?po_id={po_number}"
         driver.get(po_url)
         time.sleep(5)  # Give more time for page to load
 
-        print(f"📄 Loaded PO detail page: {po_url}")
+        print(f" Loaded PO detail page: {po_url}")
 
         # Extract PO header information from page
         po_header = {}
 
         try:
-            print(f"🔍 Extracting header information from PO page...")
+            print(f" Extracting header information from PO page...")
             page_text = driver.page_source
 
             # Extract all header fields based on the structure you provided
@@ -889,30 +889,30 @@ def scrape_po_details(po_number):
                 if 'Status' in table_text and not po_header.get('status'):
                     po_header['status'] = extract_field_value(table_text, ['Status'])
 
-            print(f"📋 Extracted header fields: {list(po_header.keys())}")
+            print(f" Extracted header fields: {list(po_header.keys())}")
 
         except Exception as e:
-            print(f"⚠️ Could not extract header info: {e}")
+            print(f" Could not extract header info: {e}")
             po_header = {'po_number': po_number}  # At least save the PO number
 
         # Extract items table
         po_items = []
 
         try:
-            print(f"🔍 Looking for data tables on PO page...")
+            print(f" Looking for data tables on PO page...")
 
             # Wait for page content to load
             wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
 
             # Find all tables
             tables = driver.find_elements(By.TAG_NAME, "table")
-            print(f"📊 Found {len(tables)} tables on page")
+            print(f" Found {len(tables)} tables on page")
 
             # Try to find the table with item data (similar to how get_po_data works)
             for table_idx, table in enumerate(tables):
                 try:
                     rows = table.find_elements(By.TAG_NAME, "tr")
-                    print(f"📋 Table {table_idx + 1}: {len(rows)} rows")
+                    print(f" Table {table_idx + 1}: {len(rows)} rows")
 
                     if len(rows) < 2:  # Skip tables with no data rows
                         continue
@@ -938,24 +938,24 @@ def scrape_po_details(po_number):
                                     'extension': cell_texts[8] if len(cell_texts) > 8 else ''
                                 }
                                 po_items.append(item)
-                                print(f"✅ Found item: {item['item_number']} - {item['description'][:30]}...")
+                                print(f" Found item: {item['item_number']} - {item['description'][:30]}...")
 
                     if po_items:  # Found items in this table
-                        print(f"🎯 Successfully extracted {len(po_items)} items from table {table_idx + 1}")
+                        print(f" Successfully extracted {len(po_items)} items from table {table_idx + 1}")
                         break
 
                 except Exception as table_error:
-                    print(f"⚠️ Error processing table {table_idx + 1}: {table_error}")
+                    print(f" Error processing table {table_idx + 1}: {table_error}")
                     continue
 
         except Exception as e:
-            print(f"⚠️ Could not extract items table: {e}")
+            print(f" Could not extract items table: {e}")
 
-        print(f"✅ Scraped {len(po_items)} items for PO {po_number}")
+        print(f" Scraped {len(po_items)} items for PO {po_number}")
         return po_header, po_items
 
     except Exception as e:
-        print(f"❌ Error scraping PO details: {e}")
+        print(f" Error scraping PO details: {e}")
         return {}, []
     finally:
         if driver:
@@ -1006,6 +1006,169 @@ def extract_field_value(page_text, field_names):
                 continue
 
     return ''
+
+
+import sys
+import os
+import webbrowser
+import threading
+import time
+from pathlib import Path
+
+# Fix encoding issues for Windows executable
+if hasattr(sys, 'frozen'):
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
+
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller"""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+def get_data_directory():
+    """Get directory for user data (database, downloads, etc.)"""
+    if getattr(sys, 'frozen', False):
+        # Running as executable
+        app_data = os.path.join(os.path.expanduser('~'), 'BID_Smart_App')
+        os.makedirs(app_data, exist_ok=True)
+        return app_data
+    else:
+        # Running as script
+        return os.getcwd()
+
+def select_folder(title="Select Folder"):
+    """Open folder selection dialog"""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+        root.attributes('-topmost', True)  # Bring to front
+
+        folder = filedialog.askdirectory(title=title)
+        root.destroy()
+
+        return folder if folder else None
+    except ImportError:
+        # Fallback: use current directory
+        return os.getcwd()
+
+def setup_user_directories():
+    """Setup user directories with folder selection for executable"""
+    if getattr(sys, 'frozen', False):
+        settings_file = os.path.join(get_data_directory(), 'user_settings.json')
+
+        # Check if settings already exist
+        if os.path.exists(settings_file):
+            import json
+            with open(settings_file, 'r') as f:
+                settings = json.load(f)
+            return settings.get('download_directory'), settings.get('reports_directory')
+
+        # First time setup - let user choose directories
+        print("First time setup - Please select directories...")
+
+        # Select download directory
+        print("Please select folder for downloading artwork files...")
+        download_dir = select_folder("Select Download Folder for Artwork Files")
+        if not download_dir:
+            download_dir = os.path.join(get_data_directory(), get_download_dir())
+            os.makedirs(download_dir, exist_ok=True)
+
+        # Select reports directory
+        print("Please select folder for saving reports (QC, Stickers, Packing Lists)...")
+        reports_dir = select_folder("Select Reports Folder")
+        if not reports_dir:
+            reports_dir = os.path.join(get_data_directory(), 'reports')
+            os.makedirs(reports_dir, exist_ok=True)
+
+        # Create subdirectories
+        os.makedirs(os.path.join(reports_dir, 'qc_report'), exist_ok=True)
+        os.makedirs(os.path.join(reports_dir, 'stickers'), exist_ok=True)
+        os.makedirs(os.path.join(reports_dir, 'packing_lists'), exist_ok=True)
+
+        # Save user preferences
+        settings = {
+            'download_directory': download_dir,
+            'reports_directory': reports_dir
+        }
+
+        import json
+        with open(settings_file, 'w') as f:
+            json.dump(settings, f, indent=2)
+
+        print(f"Download folder: {download_dir}")
+        print(f"Reports folder: {reports_dir}")
+
+        return download_dir, reports_dir
+    else:
+        # Running as script - use current directory
+        return get_download_dir(), get_reports_dir()
+
+def get_user_directories():
+    """Get user-selected directories"""
+    if getattr(sys, 'frozen', False):
+        settings_file = os.path.join(get_data_directory(), 'user_settings.json')
+        if os.path.exists(settings_file):
+            import json
+            with open(settings_file, 'r') as f:
+                settings = json.load(f)
+            return settings.get('download_directory'), settings.get('reports_directory')
+        else:
+            # Settings don't exist - return defaults, setup will be called from main
+            default_download = os.path.join(get_data_directory(), get_download_dir())
+            default_reports = os.path.join(get_data_directory(), 'reports')
+            return default_download, default_reports
+    else:
+        return get_download_dir(), get_reports_dir()
+
+def open_browser_delayed():
+    """Open browser after a short delay to ensure server is ready"""
+    time.sleep(2)
+    webbrowser.open('http://localhost:5002')
+    print("Browser opened to http://localhost:5002")
+
+
+# Global variables for user-selected directories
+USER_DOWNLOAD_DIR = None
+USER_REPORTS_DIR = None
+
+def init_user_directories():
+    """Initialize user directory variables"""
+    global USER_DOWNLOAD_DIR, USER_REPORTS_DIR
+    if getattr(sys, 'frozen', False):
+        USER_DOWNLOAD_DIR, USER_REPORTS_DIR = get_user_directories()
+    else:
+        USER_DOWNLOAD_DIR, USER_REPORTS_DIR = get_download_dir(), get_reports_dir()
+
+def get_download_dir():
+    """Get download directory"""
+    return USER_DOWNLOAD_DIR or get_download_dir()
+
+def get_reports_dir():
+    """Get reports directory"""
+    return USER_REPORTS_DIR or get_reports_dir()
+
+def open_folder_in_explorer(folder_path):
+    """Open folder in Windows Explorer"""
+    try:
+        import subprocess
+        import os
+        if os.path.exists(folder_path):
+            subprocess.run(['explorer', folder_path], check=True)
+            return True
+        else:
+            print(f"Folder does not exist: {folder_path}")
+            return False
+    except Exception as e:
+        print(f"Error opening folder: {e}")
+        return False
 
 app = Flask(__name__)
 
@@ -1087,7 +1250,7 @@ def generate_qc_report_from_database(po_number):
     """Generate QC inspection report Excel file from database data"""
     try:
         # Connect to database and fetch PO data
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get all items for this PO
@@ -1110,7 +1273,7 @@ def generate_qc_report_from_database(po_number):
             items_data.append(item_dict)
 
         # Create report directory if it doesn't exist
-        report_dir = os.path.join('report', 'qc_report')
+        report_dir = os.path.join(get_reports_dir(), 'qc_report')
         os.makedirs(report_dir, exist_ok=True)
 
         # Create filename with current date and PO number
@@ -1181,7 +1344,7 @@ def generate_sticker_file(po_number):
     """Generate sticker XLSX file from database data"""
     try:
         # Connect to database and fetch PO data
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get all items for this PO
@@ -1204,7 +1367,7 @@ def generate_sticker_file(po_number):
             items_data.append(item_dict)
 
         # Create report directory if it doesn't exist
-        report_dir = os.path.join('report', 'qc_report')
+        report_dir = os.path.join(get_reports_dir(), 'qc_report')
         os.makedirs(report_dir, exist_ok=True)
 
         # Create filename with current date and PO number
@@ -1245,7 +1408,7 @@ def generate_sticker_file(po_number):
             # Set cell content with font formatting
             cell = ws.cell(row=row_num, column=col_num, value=sticker_content)
             cell.alignment = Alignment(wrap_text=True, vertical='top')
-            cell.font = Font(name='新細明體', size=8)
+            cell.font = Font(name='', size=8)
 
         # Save the file
         wb.save(filepath)
@@ -1287,7 +1450,7 @@ def get_po_data(po_number):
         wait.until(lambda d: "login" not in d.current_url.lower())
         
         # Navigate to PO search page first
-        print(f"🔍 STEP 1: Going to PO search page")
+        print(f" STEP 1: Going to PO search page")
         driver.get("https://app.e-brandid.com/Bidnet/bidnet3/factoryPOList.aspx")
 
         # Wait for page to load
@@ -1304,20 +1467,20 @@ def get_po_data(po_number):
             search_button = driver.find_element(By.ID, "btnSearch")
             search_button.click()
 
-            print(f"🔍 STEP 2: Searching for PO {po_number}")
+            print(f" STEP 2: Searching for PO {po_number}")
             time.sleep(3)
 
             # Click on the PO link
             po_link = wait.until(EC.element_to_be_clickable((By.XPATH, f"//a[contains(text(), '{po_number}')]")))
             po_link.click()
 
-            print(f"🔍 STEP 3: Clicked on PO {po_number}")
+            print(f" STEP 3: Clicked on PO {po_number}")
 
         except Exception as e:
-            print(f"❌ Error searching for PO: {e}")
+            print(f" Error searching for PO: {e}")
             # Fallback to direct URL
             po_url = f"https://app.e-brandid.com/Bidnet/bidnet3/factoryPODetail.aspx?po_id={po_number}"
-            print(f"🔍 FALLBACK: Trying direct URL: {po_url}")
+            print(f" FALLBACK: Trying direct URL: {po_url}")
             driver.get(po_url)
 
         # Wait and check for redirects
@@ -1325,65 +1488,65 @@ def get_po_data(po_number):
         time.sleep(3)  # Wait for any redirects
 
         current_url_after_load = driver.current_url
-        print(f"🔍 STEP 2: URL after load: {current_url_after_load}")
+        print(f" STEP 2: URL after load: {current_url_after_load}")
 
         # Check if we were redirected
         if po_url != current_url_after_load:
-            print(f"🚨 REDIRECT DETECTED!")
+            print(f" REDIRECT DETECTED!")
             print(f"   Original: {po_url}")
             print(f"   Redirected to: {current_url_after_load}")
 
         # Wait for tables to load
         try:
             wait.until(EC.presence_of_element_located((By.TAG_NAME, "table")))
-            print(f"✅ Tables loaded successfully")
+            print(f" Tables loaded successfully")
         except Exception as e:
-            print(f"❌ Error waiting for tables: {e}")
+            print(f" Error waiting for tables: {e}")
 
         # Get PO info
         try:
             po_title = driver.find_element(By.TAG_NAME, "h1").text
-            print(f"🔍 STEP 3: Page title: '{po_title}'")
+            print(f" STEP 3: Page title: '{po_title}'")
         except Exception as e:
-            print(f"❌ Could not find h1 title: {e}")
+            print(f" Could not find h1 title: {e}")
             po_title = f"PO {po_number}"
 
         # Look for PO number in various places
-        print(f"🔍 STEP 4: Searching for PO {po_number} in page...")
+        print(f" STEP 4: Searching for PO {po_number} in page...")
 
         # Check URL
         if po_number in current_url_after_load:
-            print(f"✅ PO {po_number} found in URL")
+            print(f" PO {po_number} found in URL")
         else:
-            print(f"❌ PO {po_number} NOT found in URL")
+            print(f" PO {po_number} NOT found in URL")
 
         # Check title
         if po_number in po_title:
-            print(f"✅ PO {po_number} found in title")
+            print(f" PO {po_number} found in title")
         else:
-            print(f"❌ PO {po_number} NOT found in title")
+            print(f" PO {po_number} NOT found in title")
 
         # Check page source for PO number
         page_source = driver.page_source
         if po_number in page_source:
-            print(f"✅ PO {po_number} found in page source")
+            print(f" PO {po_number} found in page source")
             # Count occurrences
             count = page_source.count(po_number)
             print(f"   Found {count} occurrences of {po_number}")
         else:
-            print(f"❌ PO {po_number} NOT found anywhere in page source")
+            print(f" PO {po_number} NOT found anywhere in page source")
 
         # Look for other PO numbers in the page
         import re
         po_pattern = r'\b\d{6,8}\b'  # Look for 6-8 digit numbers (typical PO format)
         found_pos = re.findall(po_pattern, page_source)
         unique_pos = list(set(found_pos))[:10]  # First 10 unique POs found
-        print(f"🔍 Other PO numbers found on page: {unique_pos}")
+        print(f" Other PO numbers found on page: {unique_pos}")
 
         # If we're on the wrong page, return error with details
         if po_number not in current_url_after_load and po_number not in po_title and po_number not in page_source:
             error_msg = f"PO {po_number} not found. Page shows: {po_title}. URL: {current_url_after_load}"
-            print(f"🚨 FINAL ERROR: {error_msg}")
+            print(f" FINAL ERROR: {error_msg}")
             return {
                 'success': False,
                 'error': error_msg,
@@ -1674,7 +1837,7 @@ def test_login():
     wait = WebDriverWait(driver, 10)
 
     try:
-        print("🔍 Testing login...")
+        print(" Testing login...")
         driver.get(config['login_url'])
 
         username_field = wait.until(EC.presence_of_element_located((By.ID, "txtUserName")))
@@ -1688,7 +1851,7 @@ def test_login():
         wait.until(lambda d: "login" not in d.current_url.lower())
 
         current_url = driver.current_url
-        print(f"✅ Login successful, redirected to: {current_url}")
+        print(f" Login successful, redirected to: {current_url}")
 
         return jsonify({
             'success': True,
@@ -1697,7 +1860,7 @@ def test_login():
         })
 
     except Exception as e:
-        print(f"❌ Login failed: {e}")
+        print(f" Login failed: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -1841,7 +2004,7 @@ def export_master_report():
         )
 
     except Exception as e:
-        print(f"❌ Error creating Excel export: {e}")
+        print(f" Error creating Excel export: {e}")
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
 @app.route('/api/start_download', methods=['POST'])
@@ -1867,7 +2030,7 @@ def create_download_folder(po_number):
     po_folder = f"{po_number}_{time_part}"
 
     # Create download_artwork folder first
-    artwork_path = os.path.join(os.getcwd(), "download_artwork")
+    artwork_path = os.path.join(os.getcwd(), get_download_dir())
     if not os.path.exists(artwork_path):
         os.makedirs(artwork_path, exist_ok=True)
 
@@ -1918,7 +2081,7 @@ def make_browser_request(url, timeout=30, **kwargs):
         response = requests.get(url, timeout=timeout, **kwargs)
         return response
     except Exception as e:
-        print(f"❌ Request failed: {e}")
+        print(f" Request failed: {e}")
         return None
 
 def download_item_artwork(item, download_folder, item_number):
@@ -1952,17 +2115,17 @@ def download_item_artwork(item, download_folder, item_number):
                 with open(pdf_path, 'wb') as f:
                     f.write(response.content)
 
-                print(f"✅ Downloaded: {pdf_filename}")
+                print(f" Downloaded: {pdf_filename}")
                 return True
             else:
-                print(f"❌ PDF not found at: {pdf_url}")
+                print(f" PDF not found at: {pdf_url}")
                 return False
         else:
-            print(f"❌ Could not find suffix_id for: {item_name}")
+            print(f" Could not find suffix_id for: {item_name}")
             return False
 
     except Exception as e:
-        print(f"❌ Error downloading {item_name}: {e}")
+        print(f" Error downloading {item_name}: {e}")
         return False
 
 def get_item_suffix_id(item_name):
@@ -1979,11 +2142,11 @@ def real_download(po_number, method, items):
     try:
         # Create download folder
         download_folder, folder_display = create_download_folder(po_number)
-        download_status['log'].append(f"📅 Created date folder: {folder_display.split('/')[0]}")
-        download_status['log'].append(f"📁 Created PO folder: {folder_display}")
-        download_status['log'].append(f"🎯 Starting {method} download for PO {po_number}")
-        download_status['log'].append(f"💾 Files will be saved to: {download_folder}")
-        download_status['log'].append(f"📊 Found {len(items)} items to download")
+        download_status['log'].append(f" Created date folder: {folder_display.split('/')[0]}")
+        download_status['log'].append(f" Created PO folder: {folder_display}")
+        download_status['log'].append(f" Starting {method} download for PO {po_number}")
+        download_status['log'].append(f" Files will be saved to: {download_folder}")
+        download_status['log'].append(f" Found {len(items)} items to download")
 
         # Choose download method
         if method == 'super_fast':
@@ -2001,19 +2164,19 @@ def real_download(po_number, method, items):
 
         download_status['active'] = False
         download_status['download_folder'] = download_folder  # Store folder path for "Open Folder" link
-        download_status['log'].append("✅ Download completed!")
-        download_status['log'].append(f"📁 {success_count}/{len(items)} files downloaded successfully")
+        download_status['log'].append(" Download completed!")
+        download_status['log'].append(f" {success_count}/{len(items)} files downloaded successfully")
 
     except Exception as e:
         download_status['active'] = False
-        download_status['log'].append(f"❌ Error: {str(e)}")
+        download_status['log'].append(f" Error: {str(e)}")
 
 def download_super_fast(items, download_folder):
     """Super Fast Method: Direct PDF downloads using URL pattern (~10% success)"""
     global download_status
     success_count = 0
 
-    download_status['log'].append("🚀 Super Fast method - Direct PDF downloads")
+    download_status['log'].append(" Super Fast method - Direct PDF downloads")
 
     for i, item in enumerate(items):
         if not download_status['active']:
@@ -2023,14 +2186,14 @@ def download_super_fast(items, download_folder):
         download_status['progress'] = progress
 
         item_name = item.get('name', 'Unknown')
-        download_status['log'].append(f"🚀 Super Fast: Processing {i+1}/{len(items)}: {item_name}")
+        download_status['log'].append(f" Super Fast: Processing {i+1}/{len(items)}: {item_name}")
 
         try:
             suffix_id = item.get('suffix_id', '')
 
             if suffix_id:
                 pdf_url = f"https://app4.brandid.com/Artwork/{item_name}_{suffix_id}.pdf"
-                download_status['log'].append(f"🔗 Trying: {pdf_url}")
+                download_status['log'].append(f" Trying: {pdf_url}")
 
                 response = make_browser_request(pdf_url, timeout=8)
 
@@ -2042,15 +2205,15 @@ def download_super_fast(items, download_folder):
                         f.write(response.content)
 
                     file_size = len(response.content) / 1024  # KB
-                    download_status['log'].append(f"✅ Downloaded: {pdf_filename} ({file_size:.1f} KB)")
+                    download_status['log'].append(f" Downloaded: {pdf_filename} ({file_size:.1f} KB)")
                     success_count += 1
                 else:
-                    download_status['log'].append(f"❌ PDF not found or invalid: {response.status_code}")
+                    download_status['log'].append(f" PDF not found or invalid: {response.status_code}")
             else:
-                download_status['log'].append(f"❌ No suffix_id found for: {item_name}")
+                download_status['log'].append(f" No suffix_id found for: {item_name}")
 
         except Exception as e:
-            download_status['log'].append(f"❌ Error downloading {item_name}: {str(e)}")
+            download_status['log'].append(f" Error downloading {item_name}: {str(e)}")
 
         time.sleep(0.5)  # Very fast
 
@@ -2062,7 +2225,7 @@ def download_hybrid(items, download_folder):
     success_count = 0
 
     # TODO: Implement hybrid method
-    download_status['log'].append("⚡ Hybrid method - Coming soon!")
+    download_status['log'].append(" Hybrid method - Coming soon!")
 
     for i, item in enumerate(items):
         if not download_status['active']:
@@ -2070,7 +2233,7 @@ def download_hybrid(items, download_folder):
 
         progress = int((i + 1) / len(items) * 100)
         download_status['progress'] = progress
-        download_status['log'].append(f"⚡ Hybrid: Processing {i+1}/{len(items)}: {item.get('name', 'Unknown')}")
+        download_status['log'].append(f" Hybrid: Processing {i+1}/{len(items)}: {item.get('name', 'Unknown')}")
         time.sleep(2)
 
     return success_count
@@ -2081,7 +2244,7 @@ def download_standard(items, download_folder):
     success_count = 0
 
     # TODO: Implement standard method
-    download_status['log'].append("📋 Standard method - Coming soon!")
+    download_status['log'].append(" Standard method - Coming soon!")
 
     for i, item in enumerate(items):
         if not download_status['active']:
@@ -2089,7 +2252,7 @@ def download_standard(items, download_folder):
 
         progress = int((i + 1) / len(items) * 100)
         download_status['progress'] = progress
-        download_status['log'].append(f"📋 Standard: Processing {i+1}/{len(items)}: {item.get('name', 'Unknown')}")
+        download_status['log'].append(f" Standard: Processing {i+1}/{len(items)}: {item.get('name', 'Unknown')}")
         time.sleep(3)
 
     return success_count
@@ -2099,8 +2262,8 @@ def download_original_slow(items, download_folder):
     global download_status
     success_count = 0
 
-    download_status['log'].append("🐌 Original Slow method - Full browser automation")
-    download_status['log'].append("🔐 Setting up browser with download preferences...")
+    download_status['log'].append(" Original Slow method - Full browser automation")
+    download_status['log'].append(" Setting up browser with download preferences...")
 
     # Setup Chrome with download preferences (Developer Mode)
     chrome_options = Options()
@@ -2136,7 +2299,7 @@ def download_original_slow(items, download_folder):
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         wait = WebDriverWait(driver, 15)
 
-        download_status['log'].append("🌐 Navigating to E-BrandID login...")
+        download_status['log'].append(" Navigating to E-BrandID login...")
 
         # Login to E-BrandID
         driver.get("https://app.e-brandid.com/login/login.aspx")
@@ -2154,7 +2317,7 @@ def download_original_slow(items, download_folder):
 
         # Wait for login to complete
         wait.until(lambda d: "login" not in d.current_url.lower())
-        download_status['log'].append("✅ Successfully logged in to E-BrandID")
+        download_status['log'].append(" Successfully logged in to E-BrandID")
 
         # Process each item
         for i, item in enumerate(items):
@@ -2165,25 +2328,25 @@ def download_original_slow(items, download_folder):
             download_status['progress'] = progress
 
             item_name = item.get('name', 'Unknown')
-            download_status['log'].append(f"🐌 Processing {i+1}/{len(items)}: {item_name}")
+            download_status['log'].append(f" Processing {i+1}/{len(items)}: {item_name}")
 
             try:
                 success = download_item_with_browser(driver, item, download_folder, wait)
                 if success:
                     success_count += 1
-                    download_status['log'].append(f"✅ Downloaded artwork for: {item_name}")
+                    download_status['log'].append(f" Downloaded artwork for: {item_name}")
                 else:
-                    download_status['log'].append(f"❌ Failed to download: {item_name}")
+                    download_status['log'].append(f" Failed to download: {item_name}")
 
             except Exception as e:
-                download_status['log'].append(f"❌ Error processing {item_name}: {str(e)}")
+                download_status['log'].append(f" Error processing {item_name}: {str(e)}")
 
             time.sleep(2)  # Pause between items
 
-        download_status['log'].append("🔚 Closing browser...")
+        download_status['log'].append(" Closing browser...")
 
     except Exception as e:
-        download_status['log'].append(f"❌ Browser error: {str(e)}")
+        download_status['log'].append(f" Browser error: {str(e)}")
     finally:
         try:
             driver.quit()
@@ -2208,9 +2371,9 @@ def download_guaranteed_complete(po_number, items, download_folder):
     success_count = 0
     downloaded_files = []
 
-    download_status['log'].append("✨ Method 5: Guaranteed Complete Download")
-    download_status['log'].append(f"⚡ Processing {len(items)} items with 100% success rate...")
-    download_status['log'].append("🔍 Setting up browser for PDF URL extraction...")
+    download_status['log'].append(" Method 5: Guaranteed Complete Download")
+    download_status['log'].append(f" Processing {len(items)} items with 100% success rate...")
+    download_status['log'].append(" Setting up browser for PDF URL extraction...")
 
     # Setup browser for URL extraction (Developer Mode)
     chrome_options = Options()
@@ -2225,10 +2388,10 @@ def download_guaranteed_complete(po_number, items, download_folder):
 
     try:
         driver = webdriver.Chrome(options=chrome_options)
-        download_status['log'].append("✅ Browser setup complete")
+        download_status['log'].append(" Browser setup complete")
 
         # CRITICAL: Login first (same as working unified_downloader.py)
-        download_status['log'].append("📝 Logging in to E-BrandID...")
+        download_status['log'].append(" Logging in to E-BrandID...")
         driver.get(config['login_url'])
 
         # Login with credentials (same as unified_downloader.py)
@@ -2245,18 +2408,18 @@ def download_guaranteed_complete(po_number, items, download_folder):
 
         # Wait for login to complete
         WebDriverWait(driver, 10).until(lambda d: "login" not in d.current_url.lower())
-        download_status['log'].append("✅ Login successful!")
+        download_status['log'].append(" Login successful!")
 
         # Now navigate to the PO page (after login) - use the correct PO number
         po_url = f"https://app.e-brandid.com/Bidnet/bidnet3/factoryPODetail.aspx?po_id={po_number}"
         driver.get(po_url)
-        download_status['log'].append(f"📄 Loaded PO page: {po_number} (after login)")
+        download_status['log'].append(f" Loaded PO page: {po_number} (after login)")
 
         # Wait for page to load
         time.sleep(3)
 
         # Find item links with openItemDetail onclick (same as unified_downloader.py)
-        download_status['log'].append("🔍 Finding item links with openItemDetail...")
+        download_status['log'].append(" Finding item links with openItemDetail...")
         tables = driver.find_elements(By.TAG_NAME, "table")
         item_links = []
         for table in tables:
@@ -2265,10 +2428,10 @@ def download_guaranteed_complete(po_number, items, download_folder):
                 item_links = links
                 break
 
-        download_status['log'].append(f"✅ Found {len(item_links)} clickable item links")
+        download_status['log'].append(f" Found {len(item_links)} clickable item links")
 
         if not item_links:
-            download_status['log'].append("❌ No openItemDetail links found!")
+            download_status['log'].append(" No openItemDetail links found!")
             driver.quit()
             return 0
 
@@ -2283,7 +2446,7 @@ def download_guaranteed_complete(po_number, items, download_folder):
 
             try:
                 item_name = link.text.strip()
-                download_status['log'].append(f"🔍 Extracting PDF URL {i+1}/{len(item_links)}: {item_name}")
+                download_status['log'].append(f" Extracting PDF URL {i+1}/{len(item_links)}: {item_name}")
 
                 # Click item to open popup (same as unified_downloader.py)
                 original_windows = len(driver.window_handles)
@@ -2298,7 +2461,7 @@ def download_guaranteed_complete(po_number, items, download_folder):
                         break
 
                 if not popup_opened:
-                    download_status['log'].append(f"⚠️ Popup timeout for {item_name}, trying alternative method...")
+                    download_status['log'].append(f" Popup timeout for {item_name}, trying alternative method...")
                     # Try clicking again
                     time.sleep(1)
                     driver.execute_script("arguments[0].click();", link)
@@ -2324,30 +2487,30 @@ def download_guaranteed_complete(po_number, items, download_folder):
                             pdf_url = match.group(1)
                             original_filename = os.path.basename(pdf_url)
                             item_pdf_data.append((item_name, pdf_url, original_filename))
-                            download_status['log'].append(f"✅ Found PDF URL for {item_name}")
+                            download_status['log'].append(f" Found PDF URL for {item_name}")
                         else:
-                            download_status['log'].append(f"❌ Could not extract PDF URL for {item_name}")
+                            download_status['log'].append(f" Could not extract PDF URL for {item_name}")
 
                     except Exception as e:
-                        download_status['log'].append(f"❌ Error extracting URL for {item_name}: {str(e)}")
+                        download_status['log'].append(f" Error extracting URL for {item_name}: {str(e)}")
 
                     # Close popup
                     driver.close()
                     driver.switch_to.window(driver.window_handles[0])
                     time.sleep(0.5)
                 else:
-                    download_status['log'].append(f"❌ Popup did not open for {item_name}")
+                    download_status['log'].append(f" Popup did not open for {item_name}")
 
             except Exception as e:
-                download_status['log'].append(f"❌ Error processing {item_name}: {str(e)}")
+                download_status['log'].append(f" Error processing {item_name}: {str(e)}")
                 continue
 
         # Close browser
         driver.quit()
-        download_status['log'].append("🔍 PDF URL extraction complete")
+        download_status['log'].append(" PDF URL extraction complete")
 
         # Now download all the PDFs
-        download_status['log'].append("📥 Starting PDF downloads...")
+        download_status['log'].append(" Starting PDF downloads...")
 
         for i, (item_name, pdf_url, original_filename) in enumerate(item_pdf_data):
             if not download_status['active']:
@@ -2370,17 +2533,17 @@ def download_guaranteed_complete(po_number, items, download_folder):
                     success_count += 1
 
                     file_size = len(response.content)
-                    download_status['log'].append(f"✅ Downloaded: {final_filename} ({file_size:,} bytes)")
+                    download_status['log'].append(f" Downloaded: {final_filename} ({file_size:,} bytes)")
                 else:
-                    download_status['log'].append(f"❌ Failed to download: {pdf_url}")
+                    download_status['log'].append(f" Failed to download: {pdf_url}")
 
             except Exception as e:
-                download_status['log'].append(f"❌ Error downloading {item_name}: {str(e)}")
+                download_status['log'].append(f" Error downloading {item_name}: {str(e)}")
 
             time.sleep(0.5)
 
     except Exception as e:
-        download_status['log'].append(f"❌ Browser setup error: {str(e)}")
+        download_status['log'].append(f" Browser setup error: {str(e)}")
         return 0
 
     # Calculate total size
@@ -2390,14 +2553,14 @@ def download_guaranteed_complete(po_number, items, download_folder):
         if os.path.exists(file_path):
             total_size += os.path.getsize(file_path)
 
-    download_status['log'].append("🎉 GUARANTEED COMPLETE DOWNLOAD COMPLETE!")
-    download_status['log'].append(f"✅ Downloaded files: {success_count}")
-    download_status['log'].append(f"❌ Failed items: {len(item_pdf_data) - success_count}")
-    download_status['log'].append(f"📥 Total files: {len(downloaded_files)}")
-    download_status['log'].append(f"💾 Total size: {total_size / (1024*1024):.1f} MB")
+    download_status['log'].append(" GUARANTEED COMPLETE DOWNLOAD COMPLETE!")
+    download_status['log'].append(f" Downloaded files: {success_count}")
+    download_status['log'].append(f" Failed items: {len(item_pdf_data) - success_count}")
+    download_status['log'].append(f" Total files: {len(downloaded_files)}")
+    download_status['log'].append(f" Total size: {total_size / (1024*1024):.1f} MB")
 
     # Debug information
-    download_status['log'].append(f"🔍 Debug: Found {len(item_pdf_data)} PDF URLs, Downloaded {success_count} files")
+    download_status['log'].append(f" Debug: Found {len(item_pdf_data)} PDF URLs, Downloaded {success_count} files")
 
     return success_count
 
@@ -2586,7 +2749,7 @@ def save_po_details_api():
 def get_all_pos():
     """Get all PO numbers and basic info from database"""
     try:
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         cursor.execute('''
@@ -2619,7 +2782,7 @@ def get_all_pos():
 def get_po_details(po_number):
     """Get complete PO details including all items"""
     try:
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get header info
@@ -2689,7 +2852,7 @@ def get_po_items():
         if not po_number:
             return jsonify({"success": False, "message": "PO number is required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get PO items
@@ -2748,7 +2911,7 @@ def save_completion_status():
         if not po_number or not completion_type:
             return jsonify({"success": False, "message": "PO number and completion type are required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Save completion status
@@ -2771,7 +2934,7 @@ def save_completion_status():
 def reset_database():
     """One-time reset: Clear all packed status for all POs"""
     try:
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Clear all carton relationships
@@ -2807,7 +2970,7 @@ def load_po_simple():
         if not po_number:
             return jsonify({"success": False, "message": "PO number is required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Add packed_status column if it doesn't exist
@@ -2857,7 +3020,7 @@ def mark_all_done():
         if not po_number:
             return jsonify({"success": False, "message": "PO number is required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Add packed_status column if it doesn't exist
@@ -2895,7 +3058,7 @@ def pack_items_simple():
         if not po_number or not selected_items or not carton_type:
             return jsonify({"success": False, "message": "Missing required fields"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get next carton number (sequential: 1, 2, 3...)
@@ -2967,7 +3130,7 @@ def check_completion():
         if not po_number:
             return jsonify({"success": False, "message": "PO number is required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Count total items and packed items
@@ -3001,7 +3164,7 @@ def generate_packing_list():
         if not po_number:
             return jsonify({"success": False, "message": "PO number is required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get packed items grouped by carton
@@ -3072,7 +3235,7 @@ def generate_pdf_packing_list():
         # Generate unique PL number
         pl_number = generate_pl_number()
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get packed items grouped by carton
@@ -3355,7 +3518,7 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
     </head>
     <body>
         <div class="header">
-            <h1 style="margin: 0; font-size: 24px; color: #333;">📦 PACKING LIST</h1>
+            <h1 style="margin: 0; font-size: 24px; color: #333;"> PACKING LIST</h1>
             <p style="margin: 10px 0 0 0; font-size: 16px; color: #666;">Purchase Order: """ + po_number + """</p>
             <p style="margin: 5px 0 0 0; font-size: 16px; color: #007bff; font-weight: bold;">Packing List: """ + pl_number + """</p>
             <p style="margin: 5px 0 0 0; color: #666;">Date: """ + current_date + """</p>
@@ -3437,7 +3600,7 @@ def generate_professional_packing_list_html(po_number, packed_items, carton_deta
 
         <div class="no-print" style="text-align: center; margin-top: 30px;">
             <button onclick="window.print()" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">
-                🖨️ Print as PDF
+                 Print as PDF
             </button>
             <button onclick="window.close()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-left: 10px;">
                 Close
@@ -3464,7 +3627,7 @@ def download_pdf_by_pl():
         if not pl_number:
             return "PL number is required", 400
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get PL details
@@ -3517,7 +3680,7 @@ def pack_items_realtime():
         if not po_number or not selected_item_ids:
             return jsonify({"success": False, "message": "PO number and selected item IDs are required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get actual item data directly from database (clean data, no NaN possible)
@@ -3582,7 +3745,7 @@ def get_packing_status():
         if not po_number:
             return jsonify({"success": False, "message": "PO number is required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get packed items with carton numbers
@@ -3614,23 +3777,23 @@ def get_packing_status():
 def create_cartons():
     """Create cartons and pack items with enhanced tracking"""
     try:
-        print("🔧 API: create_cartons called")
+        print(" API: create_cartons called")
         data = request.json
-        print(f"📊 API: Received data: {data}")
+        print(f" API: Received data: {data}")
 
         po_number = data.get('po_number', '').strip()
         cartons_data = data.get('cartons', [])
         packing_option = data.get('packing_option', 'A')
 
-        print(f"📦 API: PO Number: {po_number}")
-        print(f"📋 API: Cartons data: {cartons_data}")
-        print(f"🎯 API: Packing option: {packing_option}")
+        print(f" API: PO Number: {po_number}")
+        print(f" API: Cartons data: {cartons_data}")
+        print(f" API: Packing option: {packing_option}")
 
         if not po_number or not cartons_data:
-            print("❌ API: Missing PO number or cartons data")
+            print(" API: Missing PO number or cartons data")
             return jsonify({"success": False, "message": "PO number and cartons data are required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get existing carton count for this PO to continue numbering
@@ -3675,13 +3838,13 @@ def create_cartons():
         conn.commit()
         conn.close()
 
-        print(f"✅ API: Successfully created {len(created_cartons)} cartons")
-        print(f"📦 API: Created cartons: {created_cartons}")
+        print(f" API: Successfully created {len(created_cartons)} cartons")
+        print(f" API: Created cartons: {created_cartons}")
 
         return jsonify({"success": True, "cartons": created_cartons})
 
     except Exception as e:
-        print(f"❌ API: Error creating cartons: {str(e)}")
+        print(f" API: Error creating cartons: {str(e)}")
         return jsonify({"success": False, "message": f"Error creating cartons: {str(e)}"})
 
 @app.route('/api/po_management/create_shipment', methods=['POST'])
@@ -3697,7 +3860,7 @@ def create_shipment():
         if not all([po_number, courier, awb_number, carton_ids]):
             return jsonify({"success": False, "message": "All shipment details are required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Calculate total weight and carton count
@@ -3744,7 +3907,7 @@ def debug_po_data():
         data = request.json
         po_number = data.get('po_number', '').strip()
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get raw data
@@ -3783,7 +3946,7 @@ def get_carton_summary():
         if not po_number:
             return jsonify({"success": False, "message": "PO number is required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get cartons with their items
@@ -3850,7 +4013,7 @@ def generate_packing_list_download():
         if not po_number:
             return jsonify({"success": False, "message": "PO number is required"})
 
-        conn = sqlite3.connect('po_database.db')
+        conn = sqlite3.connect(os.path.join(get_data_directory(), 'po_database.db'))
         cursor = conn.cursor()
 
         # Get PO header info
@@ -3903,7 +4066,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🚀 Artwork Downloader v{{ version }} - FRESH LOAD {{ cache_buster }}</title>
+    <title> Artwork Downloader v{{ version }} - FRESH LOAD {{ cache_buster }}</title>
     <!-- NUCLEAR CACHE BUSTER: {{ cache_buster }} -->
     <!-- VERSION: {{ version }} - {{ version_date }} -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0, private">
@@ -4342,7 +4505,7 @@ HTML_TEMPLATE = """
             <button class="tab active" onclick="showTab('artwork')">Download Artwork</button>
             <button class="tab" onclick="showTab('delivery')">Update Delivery Date</button>
             <button class="tab" onclick="showTab('po')">PO Management</button>
-            <button class="tab" onclick="showTab('report')">Report</button>
+            <button class="tab" onclick="showTab(get_reports_dir())">Report</button>
             <button class="tab" onclick="showTab('settings')">Settings</button>
         </div>
 
@@ -4355,7 +4518,7 @@ HTML_TEMPLATE = """
                 <label for="po_input">PO Number:</label>
                 <input type="text" id="po_input" placeholder="Enter PO number (e.g., 1284789)" />
                 <button class="btn" onclick="analyzePO()" id="analyze_btn">Analyze PO</button>
-                <button class="btn" onclick="clearEverything()" id="new_btn" style="background: #28a745; margin-left: 10px; font-weight: bold; font-size: 14px;">🆕 NEW PO</button>
+                <button class="btn" onclick="clearEverything()" id="new_btn" style="background: #28a745; margin-left: 10px; font-weight: bold; font-size: 14px;"> NEW PO</button>
             </div>
 
             <!-- Error/Success Messages -->
@@ -4363,26 +4526,26 @@ HTML_TEMPLATE = """
 
             <!-- Welcome/Instructions Section -->
             <div id="welcome_section" style="margin-top: 30px; padding: 25px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 10px; border-left: 4px solid #007bff;">
-                <h3 style="color: #007bff; margin-bottom: 15px;">🚀 Welcome to Artwork Downloader</h3>
+                <h3 style="color: #007bff; margin-bottom: 15px;"> Welcome to Artwork Downloader</h3>
                 <p style="margin-bottom: 15px; color: #495057;">Get started by entering a PO number above to analyze and download artwork files.</p>
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0;">
                     <div style="padding: 15px; background: white; border-radius: 8px; border: 1px solid #dee2e6;">
-                        <h4 style="color: #28a745; margin-bottom: 10px;">📊 Step 1: Analyze PO</h4>
+                        <h4 style="color: #28a745; margin-bottom: 10px;"> Step 1: Analyze PO</h4>
                         <p style="font-size: 0.9em; color: #6c757d;">Enter your PO number and click "Analyze PO" to get recommendations and see all available items.</p>
                     </div>
                     <div style="padding: 15px; background: white; border-radius: 8px; border: 1px solid #dee2e6;">
-                        <h4 style="color: #17a2b8; margin-bottom: 10px;">🎯 Step 2: Select Method</h4>
+                        <h4 style="color: #17a2b8; margin-bottom: 10px;"> Step 2: Select Method</h4>
                         <p style="font-size: 0.9em; color: #6c757d;">Choose from multiple download methods based on our intelligent recommendations.</p>
                     </div>
                     <div style="padding: 15px; background: white; border-radius: 8px; border: 1px solid #dee2e6;">
-                        <h4 style="color: #fd7e14; margin-bottom: 10px;">📥 Step 3: Download</h4>
+                        <h4 style="color: #fd7e14; margin-bottom: 10px;"> Step 3: Download</h4>
                         <p style="font-size: 0.9em; color: #6c757d;">Select items and start downloading. PO details can be saved to database for future reference.</p>
                     </div>
                 </div>
 
                 <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">
-                    <strong style="color: #856404;">💡 Pro Tip:</strong>
+                    <strong style="color: #856404;"> Pro Tip:</strong>
                     <span style="color: #856404;">Try PO number "1284789" as an example to see how the system works!</span>
                 </div>
             </div>
@@ -4400,7 +4563,7 @@ HTML_TEMPLATE = """
             <div class="default-method-display">
                 <div class="method-card selected" data-method="guaranteed_complete">
                     <div class="method-header">
-                        <h4>✨ Guaranteed Complete Download</h4>
+                        <h4> Guaranteed Complete Download</h4>
                         <span class="success-rate">100% Success</span>
                     </div>
                     <p>100% success rate with direct URL extraction. Visual clarity: 19 items = 19 files. Smart numbering for duplicates (_2, _3, _4).</p>
@@ -4410,7 +4573,7 @@ HTML_TEMPLATE = """
                 </div>
                 <div style="text-align: center; margin-top: 15px;">
                     <button class="btn-secondary" onclick="toggleMethodSelection()" id="toggle_methods_btn">
-                        📋 Show All Download Methods
+                         Show All Download Methods
                     </button>
                 </div>
             </div>
@@ -4419,7 +4582,7 @@ HTML_TEMPLATE = """
             <div class="method-selection hidden" id="all_methods" style="display: none;">
                 <div class="method-card" data-method="super_fast">
                     <div class="method-header">
-                        <h4>🚀 Super Fast</h4>
+                        <h4> Super Fast</h4>
                         <span class="success-rate">~10% Success</span>
                     </div>
                     <p>Direct PDF download using URL pattern. Very fast but may fail if URLs change.</p>
@@ -4430,7 +4593,7 @@ HTML_TEMPLATE = """
 
                 <div class="method-card" data-method="hybrid">
                     <div class="method-header">
-                        <h4>⚡ Hybrid</h4>
+                        <h4> Hybrid</h4>
                         <span class="success-rate">~70% Success</span>
                     </div>
                     <p>Browser login + direct requests. Good balance of speed and reliability.</p>
@@ -4441,7 +4604,7 @@ HTML_TEMPLATE = """
 
                 <div class="method-card" data-method="standard">
                     <div class="method-header">
-                        <h4>📋 Standard</h4>
+                        <h4> Standard</h4>
                         <span class="success-rate">~90% Success</span>
                     </div>
                     <p>Browser automation with smart navigation. Reliable and reasonably fast.</p>
@@ -4452,7 +4615,7 @@ HTML_TEMPLATE = """
 
                 <div class="method-card" data-method="original_slow">
                     <div class="method-header">
-                        <h4>🐌 Original Slow</h4>
+                        <h4> Original Slow</h4>
                         <span class="success-rate">100% Success</span>
                     </div>
                     <p>Full browser automation. Slowest but most reliable method.</p>
@@ -4463,7 +4626,7 @@ HTML_TEMPLATE = """
 
                 <div class="method-card" data-method="guaranteed_complete">
                     <div class="method-header">
-                        <h4>✨ Guaranteed Complete Download</h4>
+                        <h4> Guaranteed Complete Download</h4>
                         <span class="success-rate">100% Success</span>
                     </div>
                     <p>100% success rate with direct URL extraction. Visual clarity: 19 items = 19 files. Smart numbering for duplicates (_2, _3, _4).</p>
@@ -4474,7 +4637,7 @@ HTML_TEMPLATE = """
 
                 <div style="text-align: center; margin-top: 15px;">
                     <button class="btn-secondary" onclick="toggleMethodSelection()" id="hide_methods_btn">
-                        ⬆️ Hide Other Methods
+                         Hide Other Methods
                     </button>
                 </div>
             </div>
@@ -4500,14 +4663,14 @@ HTML_TEMPLATE = """
         <!-- Update Delivery Date Tab -->
         <div id="delivery" class="tab-content">
             <div class="step">
-                <h2><span class="step-number">📅</span>Update Delivery Date</h2>
+                <h2><span class="step-number"></span>Update Delivery Date</h2>
                 <p>Select a PO from your saved database to update delivery dates</p>
 
                 <!-- Saved POs List -->
                 <div style="margin: 20px 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <h3>📊 Saved PO Database</h3>
-                        <button class="btn" onclick="loadSavedPOs()" style="background: #17a2b8;">🔄 Refresh List</button>
+                        <h3> Saved PO Database</h3>
+                        <button class="btn" onclick="loadSavedPOs()" style="background: #17a2b8;"> Refresh List</button>
                     </div>
 
                     <!-- Search Input -->
@@ -4516,14 +4679,14 @@ HTML_TEMPLATE = """
                             <input
                                 type="text"
                                 id="po_search_input"
-                                placeholder="🔍 Search PO Number..."
+                                placeholder=" Search PO Number..."
                                 style="width: 100%; padding: 12px 45px 12px 15px; border: 2px solid #ddd; border-radius: 25px; font-size: 14px; outline: none; transition: all 0.3s ease;"
                                 oninput="filterPOTable()"
                                 onfocus="this.style.borderColor='#007bff'; this.style.boxShadow='0 0 0 3px rgba(0,123,255,0.1)'"
                                 onblur="this.style.borderColor='#ddd'; this.style.boxShadow='none'"
                             >
                             <div style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); color: #666; pointer-events: none;">
-                                🔍
+                                
                             </div>
                         </div>
                         <div id="search_results_count" style="margin-top: 8px; font-size: 12px; color: #666;"></div>
@@ -4531,22 +4694,22 @@ HTML_TEMPLATE = """
 
                     <div id="saved_pos_container" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px;">
                         <div id="saved_pos_loading" style="padding: 20px; text-align: center; color: #666;">
-                            📊 Loading saved POs...
+                             Loading saved POs...
                         </div>
                         <div id="saved_pos_list" style="display: none;"></div>
                         <div id="saved_pos_empty" style="display: none; padding: 20px; text-align: center; color: #666;">
-                            📝 No POs saved yet. Download some artwork first to save PO details to the database.
+                             No POs saved yet. Download some artwork first to save PO details to the database.
                         </div>
                     </div>
                 </div>
 
                 <!-- PO Details Section -->
                 <div id="delivery_info" class="hidden" style="margin-top: 20px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9;">
-                    <h3>📋 Complete PO Details</h3>
+                    <h3> Complete PO Details</h3>
 
                     <!-- PO Tracking Information -->
                     <div id="po_tracking_info" style="margin: 15px 0; padding: 15px; background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); border-radius: 8px; border-left: 4px solid #2196f3;">
-                        <h4 style="color: #1976d2; margin: 0 0 10px 0; font-size: 16px;">📊 Database Tracking Information</h4>
+                        <h4 style="color: #1976d2; margin: 0 0 10px 0; font-size: 16px;"> Database Tracking Information</h4>
                         <div style="display: flex; gap: 30px; flex-wrap: wrap;">
                             <div>
                                 <strong style="color: #666;">First Created:</strong>
@@ -4568,7 +4731,7 @@ HTML_TEMPLATE = """
 
                         <!-- Left Side: PO Header Table -->
                         <div style="flex: 1; min-width: 0;">
-                            <h4 style="color: #007bff; margin-bottom: 10px;">📊 PO Header Information</h4>
+                            <h4 style="color: #007bff; margin-bottom: 10px;"> PO Header Information</h4>
                             <div style="border: 1px solid #ddd; border-radius: 5px; background: white; max-height: 300px; overflow: auto;">
                                 <table id="po_header_table" style="width: 100%; border-collapse: collapse; min-width: 600px;">
                                     <thead style="position: sticky; top: 0; background: #007bff; color: white;">
@@ -4593,7 +4756,7 @@ HTML_TEMPLATE = """
 
                         <!-- Right Side: PO Items Table -->
                         <div style="flex: 1; min-width: 0;">
-                            <h4 style="color: #28a745; margin-bottom: 10px;">📦 PO Items Details</h4>
+                            <h4 style="color: #28a745; margin-bottom: 10px;"> PO Items Details</h4>
                             <div style="border: 1px solid #ddd; border-radius: 5px; background: white; max-height: 300px; overflow: auto;">
                                 <table id="po_items_table" style="width: 100%; border-collapse: collapse; min-width: 700px;">
                                     <thead style="position: sticky; top: 0; background: #28a745; color: white;">
@@ -4619,7 +4782,7 @@ HTML_TEMPLATE = """
 
                     <!-- Additional PO Details Section -->
                     <div style="margin: 20px 0;">
-                        <h4 style="color: #6f42c1; margin-bottom: 10px;">📋 Additional PO Information</h4>
+                        <h4 style="color: #6f42c1; margin-bottom: 10px;"> Additional PO Information</h4>
                         <div style="border: 1px solid #ddd; border-radius: 5px; background: white; padding: 15px;">
                             <table id="po_additional_table" style="width: 100%; border-collapse: collapse;">
                                 <tbody id="po_additional_body">
@@ -4631,7 +4794,7 @@ HTML_TEMPLATE = """
 
                     <!-- Delivery Date Update Section -->
                     <div style="margin: 30px 0; padding: 20px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">
-                        <h4 style="color: #856404; margin-bottom: 15px;">📅 Update Delivery Date</h4>
+                        <h4 style="color: #856404; margin-bottom: 15px;"> Update Delivery Date</h4>
 
                         <div class="form-group">
                             <label for="current_delivery_date">Current Delivery Date:</label>
@@ -4648,33 +4811,33 @@ HTML_TEMPLATE = """
                             <textarea id="delivery_notes" placeholder="Reason for date change..."></textarea>
                         </div>
 
-                        <button class="btn" onclick="updateDeliveryDate()">📅 Update Delivery Date</button>
+                        <button class="btn" onclick="updateDeliveryDate()"> Update Delivery Date</button>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Report Tab -->
-        <div id="report" class="tab-content">
+        <div id=get_reports_dir() class="tab-content">
             <div class="step">
-                <h2><span class="step-number">📊</span>PO Master Report</h2>
+                <h2><span class="step-number"></span>PO Master Report</h2>
                 <p>Comprehensive view of all PO data with 27 columns combining headers and items</p>
 
                 <!-- Report Controls -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
                     <div>
-                        <h3 style="margin: 0; color: #333;">📈 Master Data View</h3>
+                        <h3 style="margin: 0; color: #333;"> Master Data View</h3>
                         <p style="margin: 5px 0 0 0; color: #666; font-size: 0.9em;">Latest 20 records | Real-time search across all 27 columns</p>
                     </div>
                     <div style="display: flex; gap: 10px;">
-                        <button class="btn" onclick="refreshMasterReport()" style="background: #17a2b8;">🔄 Refresh</button>
-                        <button class="btn" onclick="exportMasterReport()" style="background: #28a745;">📥 Export Excel</button>
+                        <button class="btn" onclick="refreshMasterReport()" style="background: #17a2b8;"> Refresh</button>
+                        <button class="btn" onclick="exportMasterReport()" style="background: #28a745;"> Export Excel</button>
                     </div>
                 </div>
 
                 <!-- Loading State -->
                 <div id="master_report_loading" style="text-align: center; padding: 40px; color: #666;">
-                    <div style="font-size: 2em; margin-bottom: 10px;">📊</div>
+                    <div style="font-size: 2em; margin-bottom: 10px;"></div>
                     <div>Loading master report data...</div>
                 </div>
 
@@ -4723,40 +4886,40 @@ HTML_TEMPLATE = """
                                 <tr style="border-bottom: 1px solid #dee2e6; position: sticky; top: 42px; z-index: 99; background: #f8f9fa;">
                                     <!-- Fixed Column Search Inputs -->
                                     <th style="position: sticky; left: 0; background: #f8f9fa; z-index: 101; padding: 8px; border-right: 2px solid #adb5bd; width: 120px;">
-                                        <input type="text" id="search_po_number" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
+                                        <input type="text" id="search_po_number" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
                                     </th>
                                     <th style="position: sticky; left: 120px; background: #f8f9fa; z-index: 101; padding: 8px; border-right: 2px solid #adb5bd; width: 140px;">
-                                        <input type="text" id="search_item_number" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
+                                        <input type="text" id="search_item_number" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
                                     </th>
                                     <th style="position: sticky; left: 260px; background: #f8f9fa; z-index: 101; padding: 8px; border-right: 2px solid #adb5bd; width: 250px;">
-                                        <input type="text" id="search_description" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
+                                        <input type="text" id="search_description" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()">
                                     </th>
 
                                     <!-- Scrollable Column Search Inputs -->
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_color" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 140px;"><input type="text" id="search_ship_to" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_need_by" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 100px;"><input type="text" id="search_qty" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_bundle_qty" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_unit_price" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_extension" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_company" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 160px;"><input type="text" id="search_purchase_from" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 100px;"><input type="text" id="search_currency" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_po_date" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_cancel_date" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_ship_by" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 140px;"><input type="text" id="search_ship_via" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_order_type" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 100px;"><input type="text" id="search_status" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_factory" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_location" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_prod_rep" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 200px;"><input type="text" id="search_ship_to_address" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_terms" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_first_created" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_last_updated" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
-                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_update_count" placeholder="🔍" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_color" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 140px;"><input type="text" id="search_ship_to" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_need_by" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 100px;"><input type="text" id="search_qty" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_bundle_qty" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_unit_price" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_extension" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_company" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 160px;"><input type="text" id="search_purchase_from" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 100px;"><input type="text" id="search_currency" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_po_date" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_cancel_date" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_ship_by" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 140px;"><input type="text" id="search_ship_via" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_order_type" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 100px;"><input type="text" id="search_status" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_factory" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_location" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_prod_rep" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 200px;"><input type="text" id="search_ship_to_address" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 130px;"><input type="text" id="search_terms" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_first_created" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 150px;"><input type="text" id="search_last_updated" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
+                                    <th style="position: sticky; top: 42px; background: #f8f9fa; z-index: 99; padding: 8px; width: 120px;"><input type="text" id="search_update_count" placeholder="" style="width: calc(100% - 8px); padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;" oninput="searchMasterReport()"></th>
                                 </tr>
                             </thead>
 
@@ -4770,21 +4933,21 @@ HTML_TEMPLATE = """
                     <!-- Report Footer -->
                     <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
                         <div id="master_report_stats" style="color: #666; font-size: 0.9em;">
-                            📊 Showing 0 of 0 total records | 🔍 Active filters: 0 | 📅 Last updated: -
+                             Showing 0 of 0 total records |  Active filters: 0 |  Last updated: -
                         </div>
                         <div>
-                            <button class="btn-secondary" onclick="clearAllSearchFilters()" style="margin-right: 10px;">🗑️ Clear Filters</button>
-                            <button class="btn-secondary" onclick="loadMoreRecords()">📄 Load More</button>
+                            <button class="btn-secondary" onclick="clearAllSearchFilters()" style="margin-right: 10px;"> Clear Filters</button>
+                            <button class="btn-secondary" onclick="loadMoreRecords()"> Load More</button>
                         </div>
                     </div>
                 </div>
 
                 <!-- No Data State -->
                 <div id="master_report_empty" style="display: none; text-align: center; padding: 40px; color: #666;">
-                    <div style="font-size: 3em; margin-bottom: 15px;">📊</div>
+                    <div style="font-size: 3em; margin-bottom: 15px;"></div>
                     <h3>No PO Data Available</h3>
                     <p>No PO records found in the database. Download some artwork first to populate the master report.</p>
-                    <button class="btn" onclick="showTab('artwork')" style="margin-top: 15px;">📥 Go to Download Artwork</button>
+                    <button class="btn" onclick="showTab('artwork')" style="margin-top: 15px;"> Go to Download Artwork</button>
                 </div>
             </div>
         </div>
@@ -4793,7 +4956,7 @@ HTML_TEMPLATE = """
         <div id="po" class="tab-content">
             <!-- Simple Header -->
             <div style="margin-bottom: 30px; padding: 20px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border-radius: 12px; color: white;">
-                <h2 style="margin: 0 0 15px 0; text-align: center;">📦 Simple Option A Packing</h2>
+                <h2 style="margin: 0 0 15px 0; text-align: center;"> Simple Option A Packing</h2>
                 <p style="margin: 0; text-align: center; font-size: 16px; opacity: 0.9;">Load PO → Mark Done → Select Items → Pack to Carton → Repeat</p>
             </div>
 
@@ -4802,22 +4965,22 @@ HTML_TEMPLATE = """
 
                 <!-- Step 1: Database Reset (One-time) -->
                 <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
-                    <h4 style="color: #856404; margin: 0 0 10px 0;">🗑️ One-Time Database Reset</h4>
+                    <h4 style="color: #856404; margin: 0 0 10px 0;"> One-Time Database Reset</h4>
                     <p style="color: #856404; margin: 0 0 15px 0;">Clear all packed status for all POs (only needed once when starting fresh)</p>
                     <button onclick="resetDatabase()" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                        🗑️ Reset All PO Status
+                         Reset All PO Status
                     </button>
                     <div id="reset_status" style="margin-top: 10px;"></div>
                 </div>
 
                 <!-- Step 2: PO Input -->
                 <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
-                    <h4 style="color: #1565c0; margin: 0 0 15px 0;">📋 Load PO</h4>
+                    <h4 style="color: #1565c0; margin: 0 0 15px 0;"> Load PO</h4>
                     <div style="display: flex; gap: 15px; align-items: center;">
                         <input type="text" id="simple_po_input" placeholder="Enter PO number (e.g., 1280290)"
                                style="flex: 1; padding: 12px; border: 2px solid #ddd; border-radius: 5px; font-size: 16px;">
                         <button onclick="loadPOSimple()" style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                            🔍 Load PO
+                             Load PO
                         </button>
                     </div>
                     <div id="po_load_status" style="margin-top: 15px;"></div>
@@ -4828,19 +4991,19 @@ HTML_TEMPLATE = """
 
                     <!-- Action Buttons -->
                     <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #6c757d;">
-                        <h4 style="color: #495057; margin: 0 0 15px 0;">⚡ Quick Actions</h4>
+                        <h4 style="color: #495057; margin: 0 0 15px 0;"> Quick Actions</h4>
                         <div style="display: flex; gap: 15px; flex-wrap: wrap;">
                             <button onclick="markAllDone()" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                                ✅ Mark All Done
+                                 Mark All Done
                             </button>
                             <button onclick="selectAllItems()" style="padding: 10px 20px; background: #17a2b8; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                                ☑️ Select All
+                                 Select All
                             </button>
                             <button onclick="clearSelections()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                                ❌ Clear Selections
+                                 Clear Selections
                             </button>
                             <button onclick="testModal()" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                                🧪 Test Modal
+                                 Test Modal
                             </button>
                         </div>
                         <div id="action_status" style="margin-top: 15px;"></div>
@@ -4848,11 +5011,11 @@ HTML_TEMPLATE = """
 
                     <!-- Packing Method -->
                     <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #28a745;">
-                        <h4 style="color: #155724; margin: 0 0 15px 0;">📦 Packing Method</h4>
+                        <h4 style="color: #155724; margin: 0 0 15px 0;"> Packing Method</h4>
                         <div style="display: flex; gap: 20px;">
                             <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; color: #155724;">
                                 <input type="radio" name="packing_method" value="option_a" checked style="transform: scale(1.2);">
-                                ● Option A (Multi-line → 1 Carton)
+                                 Option A (Multi-line → 1 Carton)
                             </label>
                         </div>
                     </div>
@@ -4860,7 +5023,7 @@ HTML_TEMPLATE = """
                     <!-- Items Table -->
                     <div style="background: white; border-radius: 8px; border: 1px solid #ddd; overflow: hidden;">
                         <div style="background: #f8f9fa; padding: 15px; border-bottom: 1px solid #ddd;">
-                            <h4 style="margin: 0; color: #495057;">📋 PO Items</h4>
+                            <h4 style="margin: 0; color: #495057;"> PO Items</h4>
                             <div id="items_summary" style="margin-top: 5px; font-size: 14px; color: #666;"></div>
                         </div>
                         <div style="max-height: 400px; overflow-y: auto;">
@@ -4896,7 +5059,7 @@ HTML_TEMPLATE = """
             <!-- Movable Window Modal for Carton Packing - Two Step Flow -->
             <div id="carton_modal" style="display: none; position: fixed; top: 20%; right: 5%; z-index: 10000; background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); min-width: 400px; max-width: 500px; border: 2px solid #007bff;">
                 <div id="modal_header" style="background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 15px 20px; border-radius: 10px 10px 0 0; cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; font-size: 16px;">📦 Pack Selected Items</h3>
+                    <h3 style="margin: 0; font-size: 16px;"> Pack Selected Items</h3>
                     <button onclick="closeCartonModal()" style="background: none; border: none; color: white; font-size: 18px; cursor: pointer; padding: 0; width: 25px; height: 25px; border-radius: 50%; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='none'">×</button>
                 </div>
                     <!-- Step 1: Summary and Pack Button -->
@@ -4905,13 +5068,13 @@ HTML_TEMPLATE = """
 
                         <div style="text-align: center;">
                             <button onclick="showCartonForm()" style="padding: 15px 30px; background: #ffc107; color: #212529; border: none; border-radius: 8px; cursor: pointer; font-size: 18px; font-weight: bold;">
-                                📦 Pack Into Carton
+                                 Pack Into Carton
                             </button>
                         </div>
 
                         <div style="text-align: center; margin-top: 20px;">
                             <button onclick="closeCartonModal()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
-                                ❌ Cancel
+                                 Cancel
                             </button>
                         </div>
                     </div>
@@ -4938,13 +5101,13 @@ HTML_TEMPLATE = """
 
                         <div style="display: flex; gap: 15px; justify-content: center;">
                             <button onclick="confirmPackItems()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold;">
-                                📦 Pack Items
+                                 Pack Items
                             </button>
                             <button onclick="backToSummary()" style="padding: 12px 24px; background: #17a2b8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px;">
                                 ← Back
                             </button>
                             <button onclick="closeCartonModal()" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px;">
-                                ❌ Cancel
+                                 Cancel
                             </button>
                         </div>
 
@@ -4958,19 +5121,19 @@ HTML_TEMPLATE = """
 
             <div id="po_step_3" class="po-step" style="display: none;">
                 <div class="step">
-                    <h2><span class="step-number">3️⃣</span>Completion Status</h2>
+                    <h2><span class="step-number">3⃣</span>Completion Status</h2>
                     <p>Is this shipment complete or partial?</p>
 
                     <div style="margin: 30px 0; text-align: center;">
                         <div style="display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
                             <button onclick="selectCompletionStatus('all')"
                                     style="padding: 20px 40px; background: #28a745; color: white; border: none; border-radius: 12px; cursor: pointer; font-size: 18px; min-width: 200px;">
-                                ✅ All Done<br>
+                                 All Done<br>
                                 <small style="font-size: 14px; opacity: 0.9;">Ship complete quantities</small>
                             </button>
                             <button onclick="selectCompletionStatus('partial')"
                                     style="padding: 20px 40px; background: #ffc107; color: #333; border: none; border-radius: 12px; cursor: pointer; font-size: 18px; min-width: 200px;">
-                                📦 Partial Done<br>
+                                 Partial Done<br>
                                 <small style="font-size: 14px; opacity: 0.9;">Ship partial quantities</small>
                             </button>
                         </div>
@@ -4981,7 +5144,7 @@ HTML_TEMPLATE = """
             <!-- Step 4: Partial Quantities (only shown for partial) -->
             <div id="po_step_4" class="po-step" style="display: none;">
                 <div class="step">
-                    <h2><span class="step-number">4️⃣</span>Enter Finished Quantities</h2>
+                    <h2><span class="step-number">4⃣</span>Enter Finished Quantities</h2>
                     <p>Enter the actual quantities ready for shipment</p>
 
                     <div id="partial_quantities_container" style="margin: 20px 0;">
@@ -5002,20 +5165,20 @@ HTML_TEMPLATE = """
             <!-- Step 5: Packing Logic -->
             <div id="po_step_5" class="po-step" style="display: none;">
                 <div class="step">
-                    <h2><span class="step-number">5️⃣</span>Choose Packing Logic</h2>
+                    <h2><span class="step-number">5⃣</span>Choose Packing Logic</h2>
                     <p>How would you like to pack the items?</p>
 
                     <div style="margin: 30px 0; text-align: center;">
                         <div style="display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
                             <button onclick="selectPackingLogic('multi_to_one')"
                                     style="padding: 20px 30px; background: #007bff; color: white; border: none; border-radius: 12px; cursor: pointer; font-size: 16px; min-width: 250px;">
-                                📦➡️📦 Option A<br>
+                                 Option A<br>
                                 <strong>Multiple Lines → 1 Carton</strong><br>
                                 <small style="font-size: 13px; opacity: 0.9;">Pack multiple items into one carton</small>
                             </button>
                             <button onclick="selectPackingLogic('one_to_multi')"
                                     style="padding: 20px 30px; background: #6f42c1; color: white; border: none; border-radius: 12px; cursor: pointer; font-size: 16px; min-width: 250px;">
-                                📦➡️📦📦📦 Option B<br>
+                                 Option B<br>
                                 <strong>1 Line → Multiple Cartons</strong><br>
                                 <small style="font-size: 13px; opacity: 0.9;">Split one item across multiple cartons</small>
                             </button>
@@ -5033,7 +5196,7 @@ HTML_TEMPLATE = """
             <!-- Step 6A: Multi-to-One Packing -->
             <div id="po_step_6a" class="po-step" style="display: none;">
                 <div class="step">
-                    <h2><span class="step-number">6️⃣</span>Pack Multiple Lines → 1 Carton</h2>
+                    <h2><span class="step-number">6⃣</span>Pack Multiple Lines → 1 Carton</h2>
                     <p>Select items to pack together in one carton</p>
 
                     <div id="multi_to_one_container" style="margin: 20px 0;">
@@ -5045,7 +5208,7 @@ HTML_TEMPLATE = """
             <!-- Step 6B: One-to-Multi Packing -->
             <div id="po_step_6b" class="po-step" style="display: none;">
                 <div class="step">
-                    <h2><span class="step-number">6️⃣</span>Pack 1 Line → Multiple Cartons</h2>
+                    <h2><span class="step-number">6⃣</span>Pack 1 Line → Multiple Cartons</h2>
                     <p>Select an item and specify how many cartons to split it into</p>
 
                     <div id="one_to_multi_container" style="margin: 20px 0;">
@@ -5057,7 +5220,7 @@ HTML_TEMPLATE = """
             <!-- Step 7: Carton Summary -->
             <div id="po_step_7" class="po-step" style="display: none;">
                 <div class="step">
-                    <h2><span class="step-number">7️⃣</span>Carton Summary</h2>
+                    <h2><span class="step-number">7⃣</span>Carton Summary</h2>
                     <p>Review packed cartons and generate barcodes</p>
 
                     <div id="carton_summary_container" style="margin: 20px 0;">
@@ -5069,7 +5232,7 @@ HTML_TEMPLATE = """
                             ← Back
                         </button>
                         <button onclick="generateBarcodes()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-right: 10px;">
-                            🏷️ Generate Barcodes
+                             Generate Barcodes
                         </button>
                         <button onclick="goToPOStep(8)" style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
                             Continue to Courier →
@@ -5081,7 +5244,7 @@ HTML_TEMPLATE = """
             <!-- Step 8: Courier Details -->
             <div id="po_step_8" class="po-step" style="display: none;">
                 <div class="step">
-                    <h2><span class="step-number">8️⃣</span>Courier & Shipment Details</h2>
+                    <h2><span class="step-number">8⃣</span>Courier & Shipment Details</h2>
                     <p>Select courier and enter AWB details</p>
 
                     <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -5116,7 +5279,7 @@ HTML_TEMPLATE = """
                             ← Back to Carton Summary
                         </button>
                         <button onclick="createShipment()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
-                            🚚 Create Shipment →
+                             Create Shipment →
                         </button>
                     </div>
                 </div>
@@ -5125,7 +5288,7 @@ HTML_TEMPLATE = """
             <!-- Step 9: Final Summary -->
             <div id="po_step_9" class="po-step" style="display: none;">
                 <div class="step">
-                    <h2><span class="step-number">9️⃣</span>Packing List Complete</h2>
+                    <h2><span class="step-number">9⃣</span>Packing List Complete</h2>
                     <p>Shipment created successfully!</p>
 
                     <div id="final_summary_container" style="margin: 20px 0;">
@@ -5134,10 +5297,10 @@ HTML_TEMPLATE = """
 
                     <div style="margin: 20px 0; text-align: center;">
                         <button onclick="downloadPackingList()" style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-right: 10px;">
-                            📄 Download Packing List
+                             Download Packing List
                         </button>
                         <button onclick="resetPOManagement()" style="padding: 12px 24px; background: #6c757d; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
-                            🔄 Start New PO
+                             Start New PO
                         </button>
                     </div>
                 </div>
@@ -5147,12 +5310,12 @@ HTML_TEMPLATE = """
         <!-- Settings Tab -->
         <div id="settings" class="tab-content">
             <div class="step">
-                <h2><span class="step-number">⚙️</span>Settings & Configuration</h2>
+                <h2><span class="step-number"></span>Settings & Configuration</h2>
                 <p>Manage system configuration and login credentials</p>
 
                 <!-- Login Credentials Section -->
                 <div style="margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">
-                    <h3>🔐 Login Credentials</h3>
+                    <h3> Login Credentials</h3>
                     <div style="margin: 15px 0;">
                         <strong>Login URL:</strong><br>
                         <span id="display_url">https://app.e-brandid.com/login/login.aspx</span>
@@ -5168,7 +5331,7 @@ HTML_TEMPLATE = """
 
                     <!-- Admin Access Section -->
                     <div id="admin_section" style="margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
-                        <h4>🔑 Admin Access Required</h4>
+                        <h4> Admin Access Required</h4>
                         <p style="margin: 10px 0; color: #666;">Enter admin password to view/edit credentials:</p>
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <input type="password" id="admin_password" placeholder="Admin password"
@@ -5182,7 +5345,7 @@ HTML_TEMPLATE = """
 
                     <!-- Edit Form (Hidden by default) -->
                     <div id="edit_form" style="display: none; margin-top: 20px; padding: 15px; background: #e8f5e8; border-radius: 5px;">
-                        <h4>✏️ Edit Configuration</h4>
+                        <h4> Edit Configuration</h4>
                         <div style="margin: 10px 0;">
                             <label><strong>Login URL:</strong></label><br>
                             <input type="text" id="edit_url" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 3px;">
@@ -5197,10 +5360,10 @@ HTML_TEMPLATE = """
                         </div>
                         <div style="margin: 15px 0;">
                             <button onclick="saveConfig()" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer; margin-right: 10px;">
-                                💾 Save Changes
+                                 Save Changes
                             </button>
                             <button onclick="cancelEdit()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 3px; cursor: pointer;">
-                                ❌ Cancel
+                                 Cancel
                             </button>
                         </div>
                         <div id="save_message" style="margin-top: 10px;"></div>
@@ -5219,7 +5382,7 @@ HTML_TEMPLATE = """
         let notificationCounter = 0;
         const activeNotifications = new Map();
 
-        function showProgressNotification(id, message, type = 'processing', icon = '🔄') {
+        function showProgressNotification(id, message, type = 'processing', icon = '') {
             const container = document.getElementById('notification-container');
 
             // Check if notification already exists
@@ -5261,7 +5424,7 @@ HTML_TEMPLATE = """
             return notification;
         }
 
-        function updateNotification(id, message, type = 'success', icon = '✅', autoRemove = true) {
+        function updateNotification(id, message, type = 'success', icon = '', autoRemove = true) {
             const notification = showProgressNotification(id, message, type, icon);
 
             if (autoRemove) {
@@ -5359,7 +5522,7 @@ HTML_TEMPLATE = """
                 if ((tabName === 'artwork' && index === 0) ||
                     (tabName === 'delivery' && index === 1) ||
                     (tabName === 'po' && index === 2) ||
-                    (tabName === 'report' && index === 3) ||
+                    (tabName === get_reports_dir() && index === 3) ||
                     (tabName === 'settings' && index === 4)) {
                     tab.classList.add('active');
                 }
@@ -5376,7 +5539,7 @@ HTML_TEMPLATE = """
                 if (!currentPO) {
                     document.getElementById('welcome_section').style.display = 'block';
                 }
-            } else if (tabName === 'report') {
+            } else if (tabName === get_reports_dir()) {
                 // Auto-load master report when report tab is opened
                 loadMasterReport();
             }
@@ -5426,7 +5589,7 @@ HTML_TEMPLATE = """
             }
             if (downloadBtnTop) {
                 downloadBtnTop.disabled = false;
-                downloadBtnTop.innerHTML = '🚀 Start Download';
+                downloadBtnTop.innerHTML = ' Start Download';
             }
 
             // Reset method selection to default (Method 5)
@@ -5444,7 +5607,7 @@ HTML_TEMPLATE = """
             // Focus on PO input for immediate use
             document.getElementById('po_input').focus();
 
-            showError('✅ Ready for new PO! Enter PO number above.', 'success');
+            showError(' Ready for new PO! Enter PO number above.', 'success');
         }
 
         // Checkbox handling functions
@@ -5496,7 +5659,7 @@ HTML_TEMPLATE = """
 
             // Show progress notification
             const notificationId = `analyze-${poNumber}`;
-            showProgressNotification(notificationId, `🔍 Analyzing ${poNumber} PO data...`, 'processing', '🔄');
+            showProgressNotification(notificationId, ` Analyzing ${poNumber} PO data...`, 'processing', '');
 
             try {
                 const response = await fetch('/api/analyze_po?t=' + Date.now(), {
@@ -5510,7 +5673,7 @@ HTML_TEMPLATE = """
 
                 if (result.success) {
                     // Update notification to show completion
-                    updateNotification(notificationId, `✅ Finished Analyzing ${poNumber} PO`, 'success', '✅');
+                    updateNotification(notificationId, ` Finished Analyzing ${poNumber} PO`, 'success', '');
 
                     currentPO = result;
                     window.currentPoData = result;  // Store globally for checkbox functions
@@ -5520,10 +5683,10 @@ HTML_TEMPLATE = """
                     document.getElementById('step2').classList.remove('hidden');
                     document.getElementById('step3').classList.remove('hidden');
                 } else {
-                    updateNotification(notificationId, `❌ Failed to analyze ${poNumber}: ${result.error || 'Unknown error'}`, 'error', '❌');
+                    updateNotification(notificationId, ` Failed to analyze ${poNumber}: ${result.error || 'Unknown error'}`, 'error', '');
                 }
             } catch (error) {
-                updateNotification(notificationId, `❌ Error analyzing ${poNumber}: ${error.message}`, 'error', '❌');
+                updateNotification(notificationId, ` Error analyzing ${poNumber}: ${error.message}`, 'error', '');
             } finally {
                 document.getElementById('analyze_btn').disabled = false;
             }
@@ -5559,10 +5722,10 @@ HTML_TEMPLATE = """
 
             let html = `
                 <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                    <button class="btn" onclick="selectAllItems(true)">✅ Select All</button>
-                    <button class="btn" onclick="selectAllItems(false)" style="background: #e53e3e;">❌ Deselect All</button>
+                    <button class="btn" onclick="selectAllItems(true)"> Select All</button>
+                    <button class="btn" onclick="selectAllItems(false)" style="background: #e53e3e;"> Deselect All</button>
                     <span style="font-weight: bold;">Selected: <span id="selected_count">${items.length}</span> / ${items.length}</span>
-                    <button class="btn" onclick="startDownload()" id="download_btn_top" style="background: #28a745; margin-left: 20px;">🚀 Start Download</button>
+                    <button class="btn" onclick="startDownload()" id="download_btn_top" style="background: #28a745; margin-left: 20px;"> Start Download</button>
                 </div>
                 <table class="data-table">
                     <thead>
@@ -5590,7 +5753,7 @@ HTML_TEMPLATE = """
                         <td>${item.quantity}</td>
                         <td>${item.ship_to || 'N/A'}</td>
                         <td>${item.need_by || 'N/A'}</td>
-                        <td>${item.has_download ? '✅' : '❌'}</td>
+                        <td>${item.has_download ? '' : ''}</td>
                     </tr>
                 `;
             });
@@ -5617,14 +5780,14 @@ HTML_TEMPLATE = """
                 return;
             }
 
-            // 🆕 DOWNLOAD CONFIRMATION
+            //  DOWNLOAD CONFIRMATION
             const methodName = selectedMethod === 'guaranteed_complete' ? 'Guaranteed Complete Download (Method 5)' :
                               selectedMethod === 'original_slow' ? 'Original Slow Method' :
                               selectedMethod === 'super_fast' ? 'Super Fast Method' :
                               selectedMethod === 'smart_direct' ? 'Smart Direct Method' :
                               selectedMethod === 'hybrid_smart' ? 'Hybrid Smart Method' : selectedMethod;
 
-            const confirmDownload = confirm(`🚀 Start Download Confirmation\n\n` +
+            const confirmDownload = confirm(` Start Download Confirmation\n\n` +
                 `PO Number: ${currentPO.po_number}\n` +
                 `Method: ${methodName}\n` +
                 `Items to download: ${selectedItems.length}\n` +
@@ -5635,7 +5798,7 @@ HTML_TEMPLATE = """
                 return;
             }
 
-            // 🆕 PROMPT FOR PO DATABASE SAVE
+            //  PROMPT FOR PO DATABASE SAVE
             const savePODetails = await promptSavePODetails(currentPO.po_number);
 
             // Save current scroll position
@@ -5665,7 +5828,7 @@ HTML_TEMPLATE = """
 
                 // Show download progress notification
                 const downloadNotificationId = `download-${currentPO.po_number}`;
-                showProgressNotification(downloadNotificationId, `📥 Downloading ${currentPO.po_number} artwork...`, 'processing', '📥');
+                showProgressNotification(downloadNotificationId, ` Downloading ${currentPO.po_number} artwork...`, 'processing', '');
 
                 // Start the actual download
                 await fetch('/api/start_download', {
@@ -5682,7 +5845,7 @@ HTML_TEMPLATE = """
                 pollProgress(downloadNotificationId);
             } catch (error) {
                 const downloadNotificationId = `download-${currentPO.po_number}`;
-                updateNotification(downloadNotificationId, `❌ Error starting download for ${currentPO.po_number}: ${error.message}`, 'error', '❌');
+                updateNotification(downloadNotificationId, ` Error starting download for ${currentPO.po_number}: ${error.message}`, 'error', '');
             }
         }
 
@@ -5717,7 +5880,7 @@ HTML_TEMPLATE = """
                 }
             } catch (error) {
                 loadingDiv.style.display = 'none';
-                emptyDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: red;">❌ Error loading POs: ' + error.message + '</div>';
+                emptyDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: red;"> Error loading POs: ' + error.message + '</div>';
                 emptyDiv.style.display = 'block';
             }
         }
@@ -5759,19 +5922,19 @@ HTML_TEMPLATE = """
                             <a href="/api/download_qc_report/${qcReportFilename}"
                                style="color: #007bff; text-decoration: none; font-size: 12px;"
                                title="Download QC Report for ${po.po_number}">
-                                📊 Download
+                                 Download
                             </a>
                         </td>
                         <td style="padding: 12px; border-right: 1px solid #dee2e6; text-align: center;">
                             <a href="/api/download_sticker/${stickerFilename}"
                                style="color: #28a745; text-decoration: none; font-size: 12px;"
                                title="Download Sticker File for ${po.po_number}">
-                                🏷️ Download
+                                 Download
                             </a>
                         </td>
                         <td style="padding: 12px; text-align: center;">
                             <button onclick="selectPOForDelivery('${po.po_number}')" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 3px; cursor: pointer;">
-                                📅 Select
+                                 Select
                             </button>
                         </td>
                     </tr>
@@ -5817,11 +5980,11 @@ HTML_TEMPLATE = """
             } else {
                 resultsCount.textContent = `Showing ${visibleCount} of ${totalCount} POs`;
                 if (visibleCount === 0) {
-                    resultsCount.innerHTML = '<span style="color: #dc3545;">❌ No POs found matching "' + searchTerm + '"</span>';
+                    resultsCount.innerHTML = '<span style="color: #dc3545;"> No POs found matching "' + searchTerm + '"</span>';
                 } else if (visibleCount === 1) {
-                    resultsCount.innerHTML = '<span style="color: #28a745;">✅ Found 1 PO matching "' + searchTerm + '"</span>';
+                    resultsCount.innerHTML = '<span style="color: #28a745;"> Found 1 PO matching "' + searchTerm + '"</span>';
                 } else {
-                    resultsCount.innerHTML = '<span style="color: #28a745;">✅ Found ' + visibleCount + ' POs matching "' + searchTerm + '"</span>';
+                    resultsCount.innerHTML = '<span style="color: #28a745;"> Found ' + visibleCount + ' POs matching "' + searchTerm + '"</span>';
                 }
             }
         }
@@ -5933,12 +6096,12 @@ HTML_TEMPLATE = """
                     // Show details section
                     document.getElementById('delivery_info').classList.remove('hidden');
 
-                    showError(`✅ PO ${poNumber} selected - ${items.length} items loaded`, 'success');
+                    showError(` PO ${poNumber} selected - ${items.length} items loaded`, 'success');
                 } else {
-                    showError('❌ Error loading PO details: ' + result.message, 'error');
+                    showError(' Error loading PO details: ' + result.message, 'error');
                 }
             } catch (error) {
-                showError('❌ Error loading PO details: ' + error.message, 'error');
+                showError(' Error loading PO details: ' + error.message, 'error');
             }
         }
 
@@ -5948,17 +6111,17 @@ HTML_TEMPLATE = """
             const notes = document.getElementById('delivery_notes').value;
 
             if (!poNumber) {
-                showError('❌ Please select a PO first', 'error');
+                showError(' Please select a PO first', 'error');
                 return;
             }
 
             if (!newDate) {
-                showError('❌ Please select a new delivery date', 'error');
+                showError(' Please select a new delivery date', 'error');
                 return;
             }
 
             // Simulate update (you can implement actual delivery date update logic here)
-            showError(`✅ Delivery date updated for PO ${poNumber} to ${newDate}`, 'success');
+            showError(` Delivery date updated for PO ${poNumber} to ${newDate}`, 'success');
 
             if (notes) {
                 console.log(`Notes: ${notes}`);
@@ -5993,13 +6156,13 @@ HTML_TEMPLATE = """
                             <td>2025-08-01</td>
                             <td>1284789</td>
                             <td>3</td>
-                            <td>✅ Complete</td>
+                            <td> Complete</td>
                         </tr>
                         <tr>
                             <td>2025-07-31</td>
                             <td>1288060</td>
                             <td>5</td>
-                            <td>✅ Complete</td>
+                            <td> Complete</td>
                         </tr>
                     </tbody>
                 </table>
@@ -6029,13 +6192,13 @@ HTML_TEMPLATE = """
 
                 document.getElementById('progress_info').innerHTML = `
                     <p>Progress: ${status.progress}%
-                        ${showOpenFolder ? '<a href="#" onclick="openDownloadFolder()" style="margin-left: 15px; color: #007bff; text-decoration: none; font-weight: bold;">📁 Open Folder</a>' : ''}
-                        ${showNewPO ? '<a href="#" onclick="clearEverything()" style="margin-left: 15px; color: #28a745; text-decoration: none; font-weight: bold;">🆕 New PO</a>' : ''}
+                        ${showOpenFolder ? '<a href="#" onclick="openDownloadFolder()" style="margin-left: 15px; color: #007bff; text-decoration: none; font-weight: bold;"> Open Folder</a>' : ''}
+                        ${showNewPO ? '<a href="#" onclick="clearEverything()" style="margin-left: 15px; color: #28a745; text-decoration: none; font-weight: bold;"> New PO</a>' : ''}
                     </p>
                     <div style="background: #e0e0e0; height: 20px; margin: 10px 0;">
                         <div style="background: #333; height: 100%; width: ${status.progress}%; transition: width 0.3s;"></div>
                     </div>
-                    ${showNewPO ? '<div style="padding: 15px; background: #d4edda; border-radius: 8px; margin: 10px 0; border-left: 4px solid #28a745;"><strong>✅ Download Complete!</strong><br>📁 Open the download folder to access your files.<br>🆕 Click "NEW PO" button to start processing another PO.</div>' : ''}
+                    ${showNewPO ? '<div style="padding: 15px; background: #d4edda; border-radius: 8px; margin: 10px 0; border-left: 4px solid #28a745;"><strong> Download Complete!</strong><br> Open the download folder to access your files.<br> Click "NEW PO" button to start processing another PO.</div>' : ''}
                     <div style="max-height: 200px; overflow-y: auto; background: #f9f9f9; padding: 10px; font-family: monospace;">
                         ${status.log.slice().reverse().map(entry => `<div>${entry}</div>`).join('')}
                     </div>
@@ -6047,35 +6210,35 @@ HTML_TEMPLATE = """
                     // Download completed - update notification
                     if (downloadNotificationId && currentPO) {
                         if (status.progress === 100) {
-                            updateNotification(downloadNotificationId, `✅ Finished Downloading ${currentPO.po_number} artwork`, 'success', '✅');
+                            updateNotification(downloadNotificationId, ` Finished Downloading ${currentPO.po_number} artwork`, 'success', '');
 
-                            // 🔒 DISABLE FIELDS AFTER SUCCESSFUL DOWNLOAD
+                            //  DISABLE FIELDS AFTER SUCCESSFUL DOWNLOAD
                             // Disable PO input field
                             document.getElementById('po_input').disabled = true;
 
                             // Disable analyze button
                             document.getElementById('analyze_btn').disabled = true;
-                            document.getElementById('analyze_btn').innerHTML = '✅ Completed';
+                            document.getElementById('analyze_btn').innerHTML = ' Completed';
 
                             // Disable download buttons
                             document.getElementById('download_btn').disabled = true;
-                            document.getElementById('download_btn').innerHTML = '✅ Download Complete';
+                            document.getElementById('download_btn').innerHTML = ' Download Complete';
 
                             const topButton = document.getElementById('download_btn_top');
                             if (topButton) {
                                 topButton.disabled = true;
-                                topButton.innerHTML = '✅ Download Complete';
+                                topButton.innerHTML = ' Download Complete';
                             }
 
                         } else {
-                            updateNotification(downloadNotificationId, `❌ Download failed for ${currentPO.po_number}`, 'error', '❌');
+                            updateNotification(downloadNotificationId, ` Download failed for ${currentPO.po_number}`, 'error', '');
 
                             // Re-enable buttons for retry on failure
                             document.getElementById('download_btn').disabled = false;
                             const topButton = document.getElementById('download_btn_top');
                             if (topButton) {
                                 topButton.disabled = false;
-                                topButton.innerHTML = '🚀 Start Download';
+                                topButton.innerHTML = ' Start Download';
                             }
                         }
                     }
@@ -6083,7 +6246,7 @@ HTML_TEMPLATE = """
             } catch (error) {
                 console.error('Error polling progress:', error);
                 if (downloadNotificationId && currentPO) {
-                    updateNotification(downloadNotificationId, `❌ Error during download of ${currentPO.po_number}`, 'error', '❌');
+                    updateNotification(downloadNotificationId, ` Error during download of ${currentPO.po_number}`, 'error', '');
                 }
             }
         }
@@ -6093,12 +6256,12 @@ HTML_TEMPLATE = """
                 const response = await fetch('/api/open_folder');
                 const result = await response.json();
                 if (result.success) {
-                    showError('📁 Folder opened successfully!', 'success');
+                    showError(' Folder opened successfully!', 'success');
                 } else {
-                    showError('❌ ' + result.message, 'error');
+                    showError(' ' + result.message, 'error');
                 }
             } catch (error) {
-                showError('❌ Error opening folder: ' + error.message, 'error');
+                showError(' Error opening folder: ' + error.message, 'error');
             }
         }
 
@@ -6138,17 +6301,17 @@ HTML_TEMPLATE = """
                 const result = await response.json();
 
                 if (result.success) {
-                    messageDiv.textContent = '✅ Admin access granted';
+                    messageDiv.textContent = ' Admin access granted';
                     messageDiv.style.color = 'green';
 
                     // Load and show configuration
                     await loadConfiguration(password);
                 } else {
-                    messageDiv.textContent = '❌ Invalid admin password';
+                    messageDiv.textContent = ' Invalid admin password';
                     messageDiv.style.color = 'red';
                 }
             } catch (error) {
-                messageDiv.textContent = '❌ Error: ' + error.message;
+                messageDiv.textContent = ' Error: ' + error.message;
                 messageDiv.style.color = 'red';
             }
         }
@@ -6205,17 +6368,17 @@ HTML_TEMPLATE = """
                 const result = await response.json();
 
                 if (result.success) {
-                    messageDiv.innerHTML = '<span style="color: green;">✅ Configuration saved successfully!</span>';
+                    messageDiv.innerHTML = '<span style="color: green;"> Configuration saved successfully!</span>';
 
                     // Update display
                     document.getElementById('display_url').textContent = url;
                     document.getElementById('display_username').textContent = username;
                     document.getElementById('display_password').textContent = password;
                 } else {
-                    messageDiv.innerHTML = '<span style="color: red;">❌ ' + result.message + '</span>';
+                    messageDiv.innerHTML = '<span style="color: red;"> ' + result.message + '</span>';
                 }
             } catch (error) {
-                messageDiv.innerHTML = '<span style="color: red;">❌ Error: ' + error.message + '</span>';
+                messageDiv.innerHTML = '<span style="color: red;"> Error: ' + error.message + '</span>';
             }
         }
 
@@ -6243,15 +6406,15 @@ HTML_TEMPLATE = """
 
                 modal.innerHTML = `
                     <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; text-align: center;">
-                        <h3>📊 Save PO Details to Database?</h3>
+                        <h3> Save PO Details to Database?</h3>
                         <p>Do you want to save complete PO details for <strong>${poNumber}</strong> to the database?</p>
                         <p style="font-size: 0.9em; color: #666;">This will save all item details, company info, and dates for future reference.</p>
                         <div style="margin-top: 20px;">
                             <button id="saveYes" style="padding: 10px 20px; margin: 0 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                                ✅ Yes, Save Details
+                                 Yes, Save Details
                             </button>
                             <button id="saveNo" style="padding: 10px 20px; margin: 0 10px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                                ❌ No, Skip
+                                 No, Skip
                             </button>
                         </div>
                     </div>
@@ -6282,15 +6445,15 @@ HTML_TEMPLATE = """
 
                 modal.innerHTML = `
                     <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; text-align: center;">
-                        <h3>⚠️ PO Already Exists</h3>
+                        <h3> PO Already Exists</h3>
                         <p>PO <strong>${poNumber}</strong> already exists in the database.</p>
                         <p style="font-size: 0.9em; color: #666;">Do you want to overwrite the existing data?</p>
                         <div style="margin-top: 20px;">
                             <button id="overwriteYes" style="padding: 10px 20px; margin: 0 10px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                                🔄 Yes, Overwrite
+                                 Yes, Overwrite
                             </button>
                             <button id="overwriteNo" style="padding: 10px 20px; margin: 0 10px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                                ❌ No, Skip
+                                 No, Skip
                             </button>
                         </div>
                     </div>
@@ -6322,7 +6485,7 @@ HTML_TEMPLATE = """
                 const checkResult = await checkResponse.json();
 
                 if (!checkResult.success) {
-                    showError('❌ Error checking PO existence: ' + checkResult.message, 'error');
+                    showError(' Error checking PO existence: ' + checkResult.message, 'error');
                     return false;
                 }
 
@@ -6330,14 +6493,14 @@ HTML_TEMPLATE = """
                 if (checkResult.exists) {
                     overwrite = await promptOverwritePO(poNumber);
                     if (!overwrite) {
-                        showError('📊 PO database save skipped', 'info');
+                        showError(' PO database save skipped', 'info');
                         return false;
                     }
                 }
 
                 // Show progress notification
                 const saveNotificationId = `save-${poNumber}`;
-                showProgressNotification(saveNotificationId, `💾 Saving PO ${poNumber} details to database...`, 'processing', '💾');
+                showProgressNotification(saveNotificationId, ` Saving PO ${poNumber} details to database...`, 'processing', '');
 
                 // Save PO details
                 const saveResponse = await fetch('/api/po/save_details', {
@@ -6349,15 +6512,15 @@ HTML_TEMPLATE = """
                 const saveResult = await saveResponse.json();
 
                 if (saveResult.success) {
-                    updateNotification(saveNotificationId, `✅ Finished Saving PO ${poNumber} to database (${saveResult.items_count} items)`, 'success', '✅');
+                    updateNotification(saveNotificationId, ` Finished Saving PO ${poNumber} to database (${saveResult.items_count} items)`, 'success', '');
                     return true;
                 } else {
-                    updateNotification(saveNotificationId, `❌ Failed to save PO ${poNumber}: ${saveResult.message}`, 'error', '❌');
+                    updateNotification(saveNotificationId, ` Failed to save PO ${poNumber}: ${saveResult.message}`, 'error', '');
                     return false;
                 }
 
             } catch (error) {
-                showError('❌ Error saving PO to database: ' + error.message, 'error');
+                showError(' Error saving PO to database: ' + error.message, 'error');
                 return false;
             }
         }
@@ -6472,7 +6635,7 @@ HTML_TEMPLATE = """
         let searchTimeout = null;
 
         function loadMasterReport() {
-            console.log('🔍 Loading master report...');
+            console.log(' Loading master report...');
 
             // Show loading state
             document.getElementById('master_report_loading').style.display = 'block';
@@ -6482,7 +6645,7 @@ HTML_TEMPLATE = """
             fetch('/api/master_report?limit=20')
                 .then(response => response.json())
                 .then(data => {
-                    console.log('📊 Master report data received:', data);
+                    console.log(' Master report data received:', data);
 
                     if (data.success && data.data.length > 0) {
                         masterReportData = data.data;
@@ -6499,7 +6662,7 @@ HTML_TEMPLATE = """
                     }
                 })
                 .catch(error => {
-                    console.error('❌ Error loading master report:', error);
+                    console.error(' Error loading master report:', error);
                     showError('Failed to load master report: ' + error.message);
                     document.getElementById('master_report_loading').style.display = 'none';
                     document.getElementById('master_report_empty').style.display = 'block';
@@ -6561,7 +6724,7 @@ HTML_TEMPLATE = """
             const activeFilters = getActiveFilterCount();
 
             document.getElementById('master_report_stats').textContent =
-                `📊 Showing ${data.filtered_count} of ${data.total_count} total records | 🔍 Active filters: ${activeFilters} | 📅 Last updated: ${now}`;
+                ` Showing ${data.filtered_count} of ${data.total_count} total records |  Active filters: ${activeFilters} |  Last updated: ${now}`;
         }
 
         function getActiveFilterCount() {
@@ -6586,7 +6749,7 @@ HTML_TEMPLATE = """
         }
 
         function performMasterReportSearch() {
-            console.log('🔍 Performing master report search...');
+            console.log(' Performing master report search...');
 
             // Collect search filters
             const searchParams = new URLSearchParams();
@@ -6607,7 +6770,7 @@ HTML_TEMPLATE = """
             fetch(`/api/master_report?${searchParams.toString()}`)
                 .then(response => response.json())
                 .then(data => {
-                    console.log('📊 Search results received:', data);
+                    console.log(' Search results received:', data);
 
                     if (data.success) {
                         masterReportData = data.data;
@@ -6630,7 +6793,7 @@ HTML_TEMPLATE = """
                     }
                 })
                 .catch(error => {
-                    console.error('❌ Error searching master report:', error);
+                    console.error(' Error searching master report:', error);
                     showError('Search failed: ' + error.message);
                     document.getElementById('master_report_loading').style.display = 'none';
                     document.getElementById('master_report_empty').style.display = 'block';
@@ -6638,13 +6801,13 @@ HTML_TEMPLATE = """
         }
 
         function refreshMasterReport() {
-            console.log('🔄 Refreshing master report...');
+            console.log(' Refreshing master report...');
             clearAllSearchFilters();
             loadMasterReport();
         }
 
         function clearAllSearchFilters() {
-            console.log('🗑️ Clearing all search filters...');
+            console.log(' Clearing all search filters...');
             const searchInputs = document.querySelectorAll('#master_report_table input[id^="search_"]');
             searchInputs.forEach(input => {
                 input.value = '';
@@ -6653,7 +6816,7 @@ HTML_TEMPLATE = """
         }
 
         function exportMasterReport() {
-            console.log('📥 Exporting master report to Excel...');
+            console.log(' Exporting master report to Excel...');
 
             // Collect current search filters
             const searchParams = new URLSearchParams();
@@ -6676,13 +6839,13 @@ HTML_TEMPLATE = """
             link.click();
             document.body.removeChild(link);
 
-            showSuccess('📥 Excel export started! Check your downloads folder.');
+            showSuccess(' Excel export started! Check your downloads folder.');
         }
 
         function loadMoreRecords() {
-            console.log('📄 Loading more records...');
+            console.log(' Loading more records...');
             // TODO: Implement pagination
-            showInfo('📄 Pagination feature coming soon!');
+            showInfo(' Pagination feature coming soon!');
         }
 
         // ===== SIMPLE OPTION A PACKING FUNCTIONS =====
@@ -6709,17 +6872,17 @@ HTML_TEMPLATE = """
                 const result = await response.json();
 
                 if (result.success) {
-                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ ' + result.message + '</div>';
+                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;"> ' + result.message + '</div>';
 
                     // Clear ALL interface elements below reset section
                     clearAllInterface();
 
                 } else {
-                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
+                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> ' + result.message + '</div>';
                 }
 
             } catch (error) {
-                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error: ' + error.message + '</div>';
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Error: ' + error.message + '</div>';
             }
         }
 
@@ -6748,7 +6911,7 @@ HTML_TEMPLATE = """
             currentPOData = null;
             selectedItems = [];
 
-            console.log('🔄 All interface elements cleared');
+            console.log(' All interface elements cleared');
         }
 
         // Test Modal Function (for debugging)
@@ -6788,7 +6951,7 @@ HTML_TEMPLATE = """
             const statusDiv = document.getElementById('po_load_status');
 
             if (!poNumber) {
-                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please enter a PO number</div>';
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Please enter a PO number</div>';
                 return;
             }
 
@@ -6800,7 +6963,7 @@ HTML_TEMPLATE = """
 
                 if (result.success) {
                     currentPOData = result;
-                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ Loaded ' + result.total_items + ' items from PO ' + result.po_number + '</div>';
+                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;"> Loaded ' + result.total_items + ' items from PO ' + result.po_number + '</div>';
 
                     // Show items container
                     document.getElementById('items_container').style.display = 'block';
@@ -6818,11 +6981,11 @@ HTML_TEMPLATE = """
                     }, 300); // Small delay to ensure table is rendered
 
                 } else {
-                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
+                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> ' + result.message + '</div>';
                 }
 
             } catch (error) {
-                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error: ' + error.message + '</div>';
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Error: ' + error.message + '</div>';
             }
         }
 
@@ -6849,7 +7012,7 @@ HTML_TEMPLATE = """
                 const result = await response.json();
 
                 if (result.success) {
-                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ ' + result.message + '</div>';
+                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;"> ' + result.message + '</div>';
 
                     // Update items status in memory
                     currentPOData.items.forEach(item => {
@@ -6860,11 +7023,11 @@ HTML_TEMPLATE = """
 
                     displayItems();
                 } else {
-                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
+                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> ' + result.message + '</div>';
                 }
 
             } catch (error) {
-                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error: ' + error.message + '</div>';
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Error: ' + error.message + '</div>';
             }
         }
 
@@ -7056,12 +7219,12 @@ HTML_TEMPLATE = """
 
             // Validation
             if (!cartonType) {
-                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please select carton type</div>';
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Please select carton type</div>';
                 return;
             }
 
             if (!cartonWeight || isNaN(cartonWeight) || parseFloat(cartonWeight) <= 0) {
-                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please enter valid weight</div>';
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Please enter valid weight</div>';
                 return;
             }
 
@@ -7091,7 +7254,7 @@ HTML_TEMPLATE = """
                 const result = await response.json();
 
                 if (result.success) {
-                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ ' + result.message + '</div>';
+                    statusDiv.innerHTML = '<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;"> ' + result.message + '</div>';
 
                     // Update items status and carton number in memory
                     selectedItems.forEach(index => {
@@ -7112,11 +7275,11 @@ HTML_TEMPLATE = """
                     }, 1500);
 
                 } else {
-                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ' + result.message + '</div>';
+                    statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> ' + result.message + '</div>';
                 }
 
             } catch (error) {
-                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error: ' + error.message + '</div>';
+                statusDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Error: ' + error.message + '</div>';
             }
         }
 
@@ -7195,7 +7358,7 @@ HTML_TEMPLATE = """
             }
 
             statusDiv.style.display = 'block';
-            statusDiv.innerHTML = '<div style="color: #007bff; padding: 15px; background: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196f3;">🔍 Loading PO items...</div>';
+            statusDiv.innerHTML = '<div style="color: #007bff; padding: 15px; background: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196f3;"> Loading PO items...</div>';
 
             // First debug the raw data
             fetch('/api/po_management/debug_po', {
@@ -7205,7 +7368,7 @@ HTML_TEMPLATE = """
             })
             .then(response => response.json())
             .then(debugData => {
-                console.log('🔍 Raw PO data from database:', debugData);
+                console.log(' Raw PO data from database:', debugData);
 
                 // Now load the processed data
                 return fetch('/api/po_management/get_po_items', {
@@ -7216,19 +7379,19 @@ HTML_TEMPLATE = """
             })
             .then(response => response.json())
             .then(data => {
-                console.log('📦 Processed PO data:', data);
+                console.log(' Processed PO data:', data);
                 if (data.success) {
                     currentPOData = {po_number: poNumber, items: data.items};
-                    statusDiv.innerHTML = `<div style="color: #28a745; padding: 15px; background: #d4edda; border-radius: 8px; border-left: 4px solid #28a745;">✅ Successfully loaded ${data.items.length} items!</div>`;
+                    statusDiv.innerHTML = `<div style="color: #28a745; padding: 15px; background: #d4edda; border-radius: 8px; border-left: 4px solid #28a745;"> Successfully loaded ${data.items.length} items!</div>`;
                     displayPOItems(data.items);
                     updateWizardProgress(2);
                     setTimeout(() => goToPOStep(2), 1000);
                 } else {
-                    statusDiv.innerHTML = `<div style="color: #dc3545; padding: 15px; background: #f8d7da; border-radius: 8px; border-left: 4px solid #dc3545;">❌ ${data.message}</div>`;
+                    statusDiv.innerHTML = `<div style="color: #dc3545; padding: 15px; background: #f8d7da; border-radius: 8px; border-left: 4px solid #dc3545;"> ${data.message}</div>`;
                 }
             })
             .catch(error => {
-                statusDiv.innerHTML = `<div style="color: #dc3545;">❌ Error: ${error.message}</div>`;
+                statusDiv.innerHTML = `<div style="color: #dc3545;"> Error: ${error.message}</div>`;
             });
         }
 
@@ -7341,7 +7504,7 @@ HTML_TEMPLATE = """
 
             let html = `
                 <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #ffeaa7;">
-                    <h4>⚠️ Enter finished quantities (must be ≤ order quantity)</h4>
+                    <h4> Enter finished quantities (must be ≤ order quantity)</h4>
                     <div style="overflow-x: auto; margin-top: 15px;">
                         <table style="width: 100%; border-collapse: collapse;">
                             <thead>
@@ -7432,16 +7595,16 @@ HTML_TEMPLATE = """
 
             let html = `
                 <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #2196f3;">
-                    <h4>📦 Option A: Multi-line → 1 Carton (Real-time Packing)</h4>
+                    <h4> Option A: Multi-line → 1 Carton (Real-time Packing)</h4>
                     <p style="color: #666; margin-bottom: 15px;">Select items and they will be immediately packed into cartons. Each selection creates a new carton automatically.</p>
                 </div>
 
                 <div style="margin: 20px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <button onclick="selectAllUnpackedItems()" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-                        ✅ Select All Unpacked
+                         Select All Unpacked
                     </button>
                     <button onclick="clearAllSelections()" style="padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                        ❌ Clear Selections
+                         Clear Selections
                     </button>
                     <span id="selection_counter" style="font-weight: bold; color: #007bff;">0 items selected</span>
                 </div>
@@ -7468,7 +7631,7 @@ HTML_TEMPLATE = """
                 const packingInfo = packingStatus[item.item_number];
                 const isPacked = packingInfo && packingInfo.status === 'packed';
                 const cartonNumber = isPacked ? packingInfo.carton_number : '-';
-                const statusText = isPacked ? '✅ Packed' : '⏳ Pending';
+                const statusText = isPacked ? ' Packed' : '⏳ Pending';
                 const statusColor = isPacked ? '#28a745' : '#ffc107';
                 const rowStyle = isPacked ? 'background: #f8fff8; opacity: 0.7;' : '';
 
@@ -7505,11 +7668,11 @@ HTML_TEMPLATE = """
                 <div style="text-align: center; margin: 30px 0;">
                     ${unpackedCount === 0 ? `
                         <div style="background: #d4edda; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
-                            <h4 style="color: #155724; margin: 0 0 10px 0;">🎉 All Items Packed!</h4>
+                            <h4 style="color: #155724; margin: 0 0 10px 0;"> All Items Packed!</h4>
                             <p style="color: #155724; margin: 0;">All items have been packed into cartons. You can now proceed to the next step.</p>
                         </div>
                         <button onclick="goToPOStep(7)" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
-                            ➡️ Continue to Carton Summary
+                             Continue to Carton Summary
                         </button>
                     ` : `
                         <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ffc107;">
@@ -7529,7 +7692,7 @@ HTML_TEMPLATE = """
 
             let html = `
                 <div style="background: #f3e5f5; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #9c27b0;">
-                    <h4>📦📦📦 Select one item to split across multiple cartons</h4>
+                    <h4> Select one item to split across multiple cartons</h4>
                     <p style="color: #666; margin-bottom: 15px;">Choose one item and specify how many cartons to split it into.</p>
 
                     <div style="margin-bottom: 20px;">
@@ -7570,7 +7733,7 @@ HTML_TEMPLATE = """
                                 ← Back to Packing Logic
                             </button>
                             <button onclick="createOneToMultiCartons()" style="padding: 12px 24px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
-                                📦 Create Cartons →
+                                 Create Cartons →
                             </button>
                         </div>
                     </div>
@@ -7663,18 +7826,18 @@ HTML_TEMPLATE = """
                 const result = await response.json();
 
                 if (result.success) {
-                    feedbackDiv.innerHTML = `<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ Packed ${result.packed_items} items into ${result.carton_number}</div>`;
+                    feedbackDiv.innerHTML = `<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;"> Packed ${result.packed_items} items into ${result.carton_number}</div>`;
 
                     // Refresh the interface to show updated status
                     setTimeout(() => {
                         showMultiToOnePackingInterface();
                     }, 1500);
                 } else {
-                    feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ${result.message}</div>`;
+                    feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> ${result.message}</div>`;
                 }
 
             } catch (error) {
-                feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error packing items: ${error.message}</div>`;
+                feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Error packing items: ${error.message}</div>`;
             }
         }
 
@@ -7730,7 +7893,7 @@ HTML_TEMPLATE = """
         // Enhanced carton creation functions
 
         function createMultiToOneCarton() {
-            console.log('🔧 Creating multi-to-one carton...');
+            console.log(' Creating multi-to-one carton...');
 
             // Prevent multiple clicks
             const button = event.target;
@@ -7745,14 +7908,14 @@ HTML_TEMPLATE = """
             const weight = parseFloat(document.getElementById('carton_weight').value);
             const cartonSize = document.getElementById('carton_size_select').value;
 
-            console.log('📦 Found checkboxes:', checkboxes.length);
-            console.log('⚖️ Weight:', weight);
-            console.log('📏 Size:', cartonSize);
+            console.log(' Found checkboxes:', checkboxes.length);
+            console.log(' Weight:', weight);
+            console.log(' Size:', cartonSize);
 
             if (!weight || weight <= 0) {
-                feedbackDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please enter a valid carton weight</div>';
+                feedbackDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Please enter a valid carton weight</div>';
                 button.disabled = false;
-                button.innerHTML = '📦 Create Carton';
+                button.innerHTML = ' Create Carton';
                 return;
             }
 
@@ -7762,16 +7925,16 @@ HTML_TEMPLATE = """
                     const item = currentPOData.items[index];
                     // Send only the database ID, let backend get clean data from database
                     selectedItemIds.push(item.id);
-                    console.log('✅ Selected item ID:', item.id, 'item_number:', item.item_number);
+                    console.log(' Selected item ID:', item.id, 'item_number:', item.item_number);
                 }
             });
 
-            console.log('📋 Selected item IDs:', selectedItemIds);
+            console.log(' Selected item IDs:', selectedItemIds);
 
             if (selectedItemIds.length === 0) {
-                feedbackDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Please select at least one item to pack</div>';
+                feedbackDiv.innerHTML = '<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Please select at least one item to pack</div>';
                 button.disabled = false;
-                button.innerHTML = '📦 Create Carton';
+                button.innerHTML = ' Create Carton';
                 return;
             }
 
@@ -7782,7 +7945,7 @@ HTML_TEMPLATE = """
                 items: selectedItems
             };
 
-            console.log('📦 Carton data to send:', cartonData);
+            console.log(' Carton data to send:', cartonData);
 
             // Call API to create carton with enhanced tracking
             fetch('/api/po_management/create_cartons', {
@@ -7795,14 +7958,14 @@ HTML_TEMPLATE = """
                 })
             })
             .then(response => {
-                console.log('🌐 API Response status:', response.status);
+                console.log(' API Response status:', response.status);
                 return response.json();
             })
             .then(data => {
-                console.log('📊 API Response data:', data);
+                console.log(' API Response data:', data);
                 if (data.success) {
                     createdCartons.push(...data.cartons);
-                    feedbackDiv.innerHTML = `<div style="color: #28a745; padding: 15px; background: #d4edda; border-radius: 5px; border-left: 4px solid #28a745;">✅ Carton created successfully!<br><strong>Barcode:</strong> ${data.cartons[0].barcode}<br><strong>Items packed:</strong> ${selectedItems.length}</div>`;
+                    feedbackDiv.innerHTML = `<div style="color: #28a745; padding: 15px; background: #d4edda; border-radius: 5px; border-left: 4px solid #28a745;"> Carton created successfully!<br><strong>Barcode:</strong> ${data.cartons[0].barcode}<br><strong>Items packed:</strong> ${selectedItems.length}</div>`;
 
                     // Clear selections and refresh interface
                     checkboxes.forEach(cb => {
@@ -7813,20 +7976,20 @@ HTML_TEMPLATE = """
                     // Refresh the interface to show packed status
                     setTimeout(() => {
                         showMultiToOnePackingInterface();
-                        feedbackDiv.innerHTML = `<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;">✅ Ready to pack more items</div>`;
+                        feedbackDiv.innerHTML = `<div style="color: #28a745; padding: 10px; background: #d4edda; border-radius: 5px;"> Ready to pack more items</div>`;
                     }, 2000);
 
                 } else {
-                    feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ ${data.message}</div>`;
+                    feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> ${data.message}</div>`;
                 }
                 button.disabled = false;
-                button.innerHTML = '📦 Create Carton';
+                button.innerHTML = ' Create Carton';
             })
             .catch(error => {
-                console.error('❌ Error creating carton:', error);
-                feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;">❌ Error creating carton: ${error.message}</div>`;
+                console.error(' Error creating carton:', error);
+                feedbackDiv.innerHTML = `<div style="color: #dc3545; padding: 10px; background: #f8d7da; border-radius: 5px;"> Error creating carton: ${error.message}</div>`;
                 button.disabled = false;
-                button.innerHTML = '📦 Create Carton';
+                button.innerHTML = ' Create Carton';
             });
         }
 
@@ -7880,16 +8043,16 @@ HTML_TEMPLATE = """
             .then(data => {
                 if (data.success) {
                     createdCartons.push(...data.cartons);
-                    showSuccess(`✅ ${cartonCount} cartons created successfully!`);
+                    showSuccess(` ${cartonCount} cartons created successfully!`);
                     displayCartonSummary();
                     updateWizardProgress(7);
                     goToPOStep(7);
                 } else {
-                    showError(`❌ ${data.message}`);
+                    showError(` ${data.message}`);
                 }
             })
             .catch(error => {
-                showError(`❌ Error creating cartons: ${error.message}`);
+                showError(` Error creating cartons: ${error.message}`);
             });
         }
 
@@ -7898,7 +8061,7 @@ HTML_TEMPLATE = """
 
             let html = `
                 <div style="background: #d4edda; padding: 25px; border-radius: 12px; margin: 20px 0; border: 1px solid #28a745; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                    <h4 style="color: #155724; margin-bottom: 15px;">📦 Carton Summary & Barcodes</h4>
+                    <h4 style="color: #155724; margin-bottom: 15px;"> Carton Summary & Barcodes</h4>
                     <div style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
                         <div style="background: white; padding: 15px; border-radius: 8px; flex: 1; min-width: 200px;">
                             <strong>Total Cartons:</strong> ${createdCartons.length}
@@ -7951,7 +8114,7 @@ HTML_TEMPLATE = """
         }
 
         function generateBarcodes() {
-            showSuccess('🏷️ Barcodes generated! (Feature: Print barcode labels)');
+            showSuccess(' Barcodes generated! (Feature: Print barcode labels)');
         }
 
         function createShipment() {
@@ -7964,7 +8127,7 @@ HTML_TEMPLATE = """
             }
 
             updateWizardProgress(8);
-            showInfo('🚚 Creating shipment...');
+            showInfo(' Creating shipment...');
 
             const cartonIds = createdCartons.map(carton => carton.id);
 
@@ -7981,16 +8144,16 @@ HTML_TEMPLATE = """
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    showSuccess(`🚚 Shipment created successfully! Total: ${data.total_cartons} cartons, ${data.total_weight}kg`);
+                    showSuccess(` Shipment created successfully! Total: ${data.total_cartons} cartons, ${data.total_weight}kg`);
                     displayFinalSummary(courier, awbNumber, data);
                     updateWizardProgress(9);
                     goToPOStep(9);
                 } else {
-                    showError(`❌ ${data.message}`);
+                    showError(` ${data.message}`);
                 }
             })
             .catch(error => {
-                showError(`❌ Error creating shipment: ${error.message}`);
+                showError(` Error creating shipment: ${error.message}`);
             });
         }
 
@@ -8003,27 +8166,27 @@ HTML_TEMPLATE = """
             let html = `
                 <div style="background: linear-gradient(135deg, #d1ecf1 0%, #e8f5e8 100%); padding: 30px; border-radius: 15px; margin: 20px 0; border: 2px solid #17a2b8; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
                     <div style="text-align: center; margin-bottom: 25px;">
-                        <h3 style="color: #0c5460; margin: 0;">🎉 Packing List Complete!</h3>
+                        <h3 style="color: #0c5460; margin: 0;"> Packing List Complete!</h3>
                         <p style="color: #0c5460; margin: 5px 0; font-size: 16px;">All items packed and ready for shipment</p>
                     </div>
 
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 25px 0;">
                         <div style="background: white; padding: 20px; border-radius: 10px; border-left: 4px solid #007bff;">
-                            <h5 style="color: #007bff; margin-bottom: 15px;">📋 PO Summary</h5>
+                            <h5 style="color: #007bff; margin-bottom: 15px;"> PO Summary</h5>
                             <p><strong>PO Number:</strong> ${currentPOData.po_number}</p>
                             <p><strong>Total Items:</strong> ${totalItems} pieces</p>
                             <p><strong>Completion:</strong> ${currentCompletionStatus === 'all' ? 'Complete' : 'Partial'}</p>
                             <p><strong>Packing Method:</strong> ${currentPackingLogic === 'multi_to_one' ? 'Option A (Multi→1)' : 'Option B (1→Multi)'}</p>
                         </div>
                         <div style="background: white; padding: 20px; border-radius: 10px; border-left: 4px solid #28a745;">
-                            <h5 style="color: #28a745; margin-bottom: 15px;">📦 Carton Summary</h5>
+                            <h5 style="color: #28a745; margin-bottom: 15px;"> Carton Summary</h5>
                             <p><strong>Total Cartons:</strong> ${createdCartons.length}</p>
                             <p><strong>Total Weight:</strong> ${totalWeight}kg</p>
                             <p><strong>Barcodes:</strong> Generated</p>
                             <p><strong>Status:</strong> Ready to Ship</p>
                         </div>
                         <div style="background: white; padding: 20px; border-radius: 10px; border-left: 4px solid #ffc107;">
-                            <h5 style="color: #856404; margin-bottom: 15px;">🚚 Shipment Details</h5>
+                            <h5 style="color: #856404; margin-bottom: 15px;"> Shipment Details</h5>
                             <p><strong>Courier:</strong> ${courier}</p>
                             <p><strong>AWB Number:</strong> ${awbNumber}</p>
                             <p><strong>Ship Date:</strong> ${new Date().toLocaleDateString()}</p>
@@ -8033,7 +8196,7 @@ HTML_TEMPLATE = """
 
                     <div style="text-align: center; margin-top: 25px; padding: 20px; background: rgba(255,255,255,0.7); border-radius: 10px;">
                         <p style="color: #0c5460; font-size: 14px; margin: 0;">
-                            ✅ All steps completed successfully! Your packing list is ready for download.
+                             All steps completed successfully! Your packing list is ready for download.
                         </p>
                     </div>
                 </div>
@@ -8043,7 +8206,7 @@ HTML_TEMPLATE = """
         }
 
         function downloadPackingList() {
-            showInfo('📄 Generating packing list...');
+            showInfo(' Generating packing list...');
 
             fetch('/api/po_management/generate_packing_list', {
                 method: 'POST',
@@ -8066,13 +8229,13 @@ HTML_TEMPLATE = """
                     a.click();
                     document.body.removeChild(a);
                     window.URL.revokeObjectURL(url);
-                    showSuccess('📄 Packing list downloaded successfully!');
+                    showSuccess(' Packing list downloaded successfully!');
                 } else {
-                    showError(`❌ ${data.message}`);
+                    showError(` ${data.message}`);
                 }
             })
             .catch(error => {
-                showError(`❌ Error generating packing list: ${error.message}`);
+                showError(` Error generating packing list: ${error.message}`);
             });
         }
 
@@ -8144,14 +8307,14 @@ HTML_TEMPLATE = """
 
         function viewCreatedCartons() {
             if (createdCartons.length === 0) {
-                showInfo('📦 No cartons created yet. Create some cartons first!');
+                showInfo(' No cartons created yet. Create some cartons first!');
                 return;
             }
 
             const feedbackDiv = document.getElementById('multi_to_one_feedback');
             let html = `
                 <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #28a745;">
-                    <h4 style="color: #155724; margin-bottom: 15px;">📦 Created Cartons (${createdCartons.length})</h4>
+                    <h4 style="color: #155724; margin-bottom: 15px;"> Created Cartons (${createdCartons.length})</h4>
                     <div style="overflow-x: auto;">
                         <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden;">
                             <thead>
@@ -8215,7 +8378,7 @@ HTML_TEMPLATE = """
 
             // Go back to step 1
             goToPOStep(1);
-            showSuccess('🔄 Ready for new PO management - All data cleared');
+            showSuccess(' Ready for new PO management - All data cleared');
         }
         */
         // ===== END OF OLD COMPLEX FUNCTIONS =====
@@ -8302,14 +8465,25 @@ HTML_TEMPLATE = """
 """
 
 if __name__ == '__main__':
-    print(f"🚀 Starting artwork downloader v{VERSION}...")
-    print(f"📅 Version Date: {VERSION_DATE}")
-    print(f"📝 Last Edit: {LAST_EDIT}")
-    print("📊 Initializing PO database...")
-    init_database()
-    print("📦 Creating sample PO data...")
-    create_sample_po_data()
-    print("📱 Open your browser and go to: http://localhost:5002")
-    print("🛑 Press Ctrl+C to stop the server")
+    print(f"Starting artwork downloader v{VERSION}...")
+    print(f"Version Date: {VERSION_DATE}")
+    print(f"Last Edit: {LAST_EDIT}")
 
-    app.run(debug=False, host='127.0.0.1', port=5002)
+    # Setup user directories for executable (only once)
+    if getattr(sys, 'frozen', False):
+        setup_user_directories()
+        init_user_directories()
+
+    print("Initializing PO database...")
+    init_database()
+
+    # Auto-open browser for executable
+    if getattr(sys, 'frozen', False):
+        print("Starting browser...")
+        browser_thread = threading.Thread(target=open_browser_delayed)
+        browser_thread.daemon = True
+        browser_thread.start()
+
+    print("Server starting on http://localhost:5002")
+    print("Press Ctrl+C to stop the server")
+    app.run(host='127.0.0.1', port=5002, debug=False)
