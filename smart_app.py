@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.5.6"
+VERSION = "3.5.11"
 VERSION_DATE = "2025-08-25 00:00"
-LAST_EDIT = "Add missing title and timestamp fields to fix remaining undefined displays"
+LAST_EDIT = "Fix save_po_details function to use scrape_po_details for PO 1289169 compatibility"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -2585,30 +2585,31 @@ def save_po_details_api():
         return jsonify({"success": False, "message": "PO number required"})
 
     try:
-        # Use the working get_po_data function instead of scrape_po_details
-        result = get_po_data(po_number)
+        # Use the working scrape_po_details function
+        result = scrape_po_details(po_number)
 
-        if not result.get('success'):
-            return jsonify({"success": False, "message": "Could not extract PO details from website"})
+        # Check if scrape_po_details returned data successfully
+        if not result or 'items' not in result or not result['items']:
+            return jsonify({"success": False, "message": "No items found in PO"})
 
-        # Extract data from the working result format
+        # Extract data from the scrape_po_details format
         raw_items = result.get('items', [])
         if not raw_items:
             return jsonify({"success": False, "message": "No items found in PO"})
 
-        # Convert the get_po_data format to the database format
+        # Convert the scrape_po_details format to the database format
         po_items = []
         for item in raw_items:
             po_items.append({
-                'item_number': item.get('name', ''),  # get_po_data uses 'name' for item number
+                'item_number': item.get('item_number', ''),  # scrape_po_details uses 'item_number'
                 'description': item.get('description', ''),
-                'color': item.get('color', ''),  # Now available from get_po_data
+                'color': item.get('color', ''),  # Available from scrape_po_details
                 'ship_to': item.get('ship_to', ''),
                 'need_by': item.get('need_by', ''),
-                'qty': item.get('quantity', ''),
-                'bundle_qty': item.get('bundle_qty', ''),  # Now available from get_po_data
-                'unit_price': item.get('unit_price', ''),  # Now available from get_po_data
-                'extension': item.get('extension', '')  # Now available from get_po_data
+                'qty': item.get('qty', ''),  # scrape_po_details uses 'qty'
+                'bundle_qty': item.get('bundle_qty', ''),  # Available from scrape_po_details
+                'unit_price': item.get('unit_price', ''),  # Available from scrape_po_details
+                'extension': item.get('extension', '')  # Available from scrape_po_details
             })
 
         # Create header from available data - use real data from your example
