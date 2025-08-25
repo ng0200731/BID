@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.5.0"
-VERSION_DATE = "2025-08-15 00:00"
-LAST_EDIT = "Fix folder opening: Open Folder button + auto-open after downloads"
+VERSION = "3.5.6"
+VERSION_DATE = "2025-08-25 00:00"
+LAST_EDIT = "Add missing title and timestamp fields to fix remaining undefined displays"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -24,6 +24,7 @@ import time
 import requests
 import re
 import sqlite3
+import shutil
 from datetime import datetime
 import io
 from openpyxl import Workbook
@@ -807,7 +808,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+
+
 
 def scrape_po_details(po_number):
     """Scrape complete PO details from factoryPODetail.aspx page"""
@@ -821,7 +823,14 @@ def scrape_po_details(po_number):
         chrome_options.add_argument("--disable-images")
         chrome_options.add_argument("--remote-debugging-port=9223")  # Developer mode
 
-        driver_path = ChromeDriverManager().install()
+        # --- Use Local Chromedriver ---
+        driver_path = os.path.join(os.getcwd(), 'chromedriver.exe')
+        if not os.path.exists(driver_path):
+            error_msg = "chromedriver.exe not found in the project directory. Please download it and place it in c:\\project\\bid\\"
+            print(f"❌ {error_msg}")
+            return {"error": error_msg}
+        print(f"ℹ️ Using local chromedriver: {driver_path}")
+        # --- End Use Local Chromedriver ---
         service = Service(driver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         wait = WebDriverWait(driver, 15)
@@ -849,6 +858,15 @@ def scrape_po_details(po_number):
         time.sleep(5)  # Give more time for page to load
 
         print(f"📄 Loaded PO detail page: {po_url}")
+
+        # --- DEBUG: Save page source to a file for analysis ---
+        debug_folder = 'debug'
+        os.makedirs(debug_folder, exist_ok=True)
+        debug_file_path = os.path.join(debug_folder, f'po_{po_number}_page_source.html')
+        with open(debug_file_path, 'w', encoding='utf-8') as f:
+            f.write(driver.page_source)
+        print(f"💾 Saved page source for debugging to: {debug_file_path}")
+        # --- END DEBUG ---
 
         # Extract PO header information from page
         po_header = {}
@@ -952,11 +970,15 @@ def scrape_po_details(po_number):
             print(f"⚠️ Could not extract items table: {e}")
 
         print(f"✅ Scraped {len(po_items)} items for PO {po_number}")
-        return po_header, po_items
+        # Return data in the expected dictionary format
+        return {
+            "header": po_header,
+            "items": po_items
+        }
 
     except Exception as e:
         print(f"❌ Error scraping PO details: {e}")
-        return {}, []
+        return {"error": str(e)}
     finally:
         if driver:
             driver.quit()
@@ -1023,9 +1045,9 @@ config = {
 
 def analyze_po_and_recommend(po_number, item_count, item_names):
     """Analyze PO data and recommend best download method"""
-    
+
     recommendations = []
-    
+
     # Analyze item count
     if item_count <= 10:
         recommendations.append({
@@ -1048,16 +1070,16 @@ def analyze_po_and_recommend(po_number, item_count, item_names):
             'reason': f'Large PO ({item_count} items) - Hybrid speed essential for efficiency',
             'score': 100
         })
-    
+
     # Analyze item name patterns for duplicates
     unique_bases = set()
     for name in item_names:
         # Extract base name (remove size/color variants)
         base = name.split('BLK')[0].split('WHT')[0].split('NAT')[0][:10]
         unique_bases.add(base)
-    
+
     duplicate_ratio = 1 - (len(unique_bases) / len(item_names)) if item_names else 0
-    
+
     if duplicate_ratio > 0.7:  # More than 70% duplicates
         recommendations.append({
             'method': 'clean',
@@ -1065,7 +1087,7 @@ def analyze_po_and_recommend(po_number, item_count, item_names):
             'reason': f'High duplicate ratio ({duplicate_ratio:.0%}) - Clean naming will organize files better',
             'score': 85
         })
-    
+
     # Sort by score
     recommendations.sort(key=lambda x: x['score'], reverse=True)
     return recommendations
@@ -1256,23 +1278,28 @@ def generate_sticker_file(po_number):
 
 def get_po_data(po_number):
     """Get PO data from E-BrandID"""
-    
+
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-images")
     chrome_options.add_argument("--remote-debugging-port=9224")  # Developer mode
-    
-    try:
-        driver_path = ChromeDriverManager().install()
-        service = Service(driver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-    except:
-        driver = webdriver.Chrome(options=chrome_options)
-    
+
+    # --- Use Local Chromedriver ---
+    driver_path = os.path.join(os.getcwd(), 'chromedriver.exe')
+    if not os.path.exists(driver_path):
+        error_msg = "chromedriver.exe not found in the project directory"
+        print(f"❌ {error_msg}")
+        return {"success": False, "error": error_msg}
+
+    print(f"ℹ️ Using local chromedriver: {driver_path}")
+    service = Service(driver_path)
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    # --- End Use Local Chromedriver ---
+
     wait = WebDriverWait(driver, 10)
-    
+
     try:
         # Login
         driver.get(config['login_url'])
@@ -1281,11 +1308,11 @@ def get_po_data(po_number):
 
         username_field.send_keys(config['username'])
         password_field.send_keys(config['password'])
-        
+
         login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
         login_button.click()
         wait.until(lambda d: "login" not in d.current_url.lower())
-        
+
         # Navigate to PO search page first
         print(f"🔍 STEP 1: Going to PO search page")
         driver.get("https://app.e-brandid.com/Bidnet/bidnet3/factoryPOList.aspx")
@@ -1392,7 +1419,7 @@ def get_po_data(po_number):
                 'actual_title': po_title,
                 'found_pos': unique_pos[:5]  # Include some found POs for debugging
             }
-        
+
         # Find item links and extract data with robust table detection
         tables = driver.find_elements(By.TAG_NAME, "table")
         item_data = []
@@ -1527,7 +1554,7 @@ def get_po_data(po_number):
             if data_rows_processed >= 1:  # Even 1 valid item means we found the right table
                 print(f"Found sufficient data in table {table_index}, stopping search")
                 break
-        
+
         # Remove duplicates based on item name
         seen_items = set()
         unique_items = []
@@ -1545,7 +1572,7 @@ def get_po_data(po_number):
         # Get recommendations
         item_names = [item['name'] for item in item_data]
         recommendations = analyze_po_and_recommend(po_number, len(item_data), item_names)
-        
+
         return {
             'success': True,
             'po_number': po_number,
@@ -1555,14 +1582,14 @@ def get_po_data(po_number):
             'recommendations': recommendations,
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
-        
+
     except Exception as e:
         return {
             'success': False,
             'error': str(e),
             'po_number': po_number
         }
-    
+
     finally:
         driver.quit()
 
@@ -1596,13 +1623,50 @@ def analyze_po():
     """Analyze PO and return data with recommendations"""
     data = request.json
     po_number = data.get('po_number')
-    
+
     if not po_number:
         return jsonify({'error': 'PO number required'}), 400
-    
-    # Get PO data
-    result = get_po_data(po_number)
-    
+
+    # Get PO data using the working scrape function
+    scraped_result = scrape_po_details(po_number)
+
+    # Convert to expected format for web interface
+    if scraped_result and 'items' in scraped_result and scraped_result['items']:
+        # Convert scrape_po_details format to get_po_data format
+        converted_items = []
+        for item in scraped_result['items']:
+            converted_items.append({
+                'name': item.get('item_number', ''),  # Web interface expects 'name'
+                'item_number': item.get('item_number', ''),
+                'description': item.get('description', ''),
+                'color': item.get('color', ''),
+                'ship_to': item.get('ship_to', ''),
+                'need_by': item.get('need_by', ''),
+                'quantity': item.get('qty', ''),  # Web interface expects 'quantity'
+                'qty': item.get('qty', ''),
+                'bundle_qty': item.get('bundle_qty', ''),
+                'unit_price': item.get('unit_price', ''),
+                'extension': item.get('extension', ''),
+                'has_download': True,  # Assume downloadable
+                'suffix_id': ''  # Will be filled if needed
+            })
+
+        # Add timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        result = {
+            'success': True,
+            'po_number': po_number,  # Add PO number to response
+            'title': f'PO {po_number}',  # Add title for display
+            'timestamp': timestamp,  # Add timestamp for display
+            'items': converted_items,
+            'header': scraped_result.get('header', {}),
+            'total_items': len(converted_items)
+        }
+    else:
+        result = {'success': False, 'error': 'No items found or scraping failed'}
+
     if result['success']:
         global po_data
         po_data = result
@@ -3914,14 +3978,14 @@ HTML_TEMPLATE = """
     <meta name="build-time" content="{{ cache_buster }}">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #f5f5f5;
             color: #333;
             line-height: 1.6;
         }
-        
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -3967,7 +4031,7 @@ HTML_TEMPLATE = """
         .tab-content.active {
             display: block;
         }
-        
+
         .header {
             background: #2c3e50;
             color: white;
@@ -3975,20 +4039,20 @@ HTML_TEMPLATE = """
             text-align: center;
             margin-bottom: 30px;
         }
-        
+
         .step {
             background: white;
             border: 1px solid #e0e0e0;
             margin-bottom: 20px;
             padding: 25px;
         }
-        
+
         .step h2 {
             margin-bottom: 15px;
             color: #333;
             font-size: 1.3em;
         }
-        
+
         .step-number {
             background: #333;
             color: white;
@@ -4001,24 +4065,24 @@ HTML_TEMPLATE = """
             margin-right: 10px;
             font-weight: bold;
         }
-        
+
         .form-group {
             margin-bottom: 20px;
         }
-        
+
         .form-group label {
             display: block;
             margin-bottom: 8px;
             font-weight: 500;
         }
-        
+
         .form-group input {
             width: 300px;
             padding: 12px;
             border: 1px solid #ccc;
             font-size: 1em;
         }
-        
+
         .btn {
             background: #333;
             color: white;
@@ -4028,11 +4092,11 @@ HTML_TEMPLATE = """
             font-size: 0.9em;
             margin-right: 10px;
         }
-        
+
         .btn:hover {
             background: #555;
         }
-        
+
         .btn:disabled {
             background: #ccc;
             cursor: not-allowed;
@@ -4053,18 +4117,18 @@ HTML_TEMPLATE = """
             background: #e9ecef;
             border-color: #adb5bd;
         }
-        
+
         .po-info {
             background: #f9f9f9;
             padding: 20px;
             border: 1px solid #e0e0e0;
             margin-bottom: 20px;
         }
-        
+
         .recommendations {
             margin-bottom: 20px;
         }
-        
+
         .recommendation {
             background: white;
             border: 1px solid #e0e0e0;
@@ -4072,20 +4136,20 @@ HTML_TEMPLATE = """
             margin-bottom: 10px;
             cursor: pointer;
         }
-        
+
         .recommendation:hover {
             border-color: #333;
         }
-        
+
         .recommendation.selected {
             border-color: #333;
             background: #f9f9f9;
         }
-        
+
         .recommendation h4 {
             margin-bottom: 5px;
         }
-        
+
         .recommendation .score {
             float: right;
             background: #333;
@@ -4094,25 +4158,25 @@ HTML_TEMPLATE = """
             border-radius: 10px;
             font-size: 0.8em;
         }
-        
+
         .data-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 15px;
         }
-        
+
         .data-table th,
         .data-table td {
             border: 1px solid #e0e0e0;
             padding: 8px 12px;
             text-align: left;
         }
-        
+
         .data-table th {
             background: #f9f9f9;
             font-weight: 500;
         }
-        
+
         .data-table tr:nth-child(even) {
             background: #fafafa;
         }
@@ -4246,7 +4310,7 @@ HTML_TEMPLATE = """
             padding: 20px;
             color: #666;
         }
-        
+
         .error {
             background: #fee;
             color: #c53030;
@@ -4387,7 +4451,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
         </div>
-        
+
         <!-- Step 2: Show Recommendations -->
         <div class="step hidden" id="step2">
             <h2><span class="step-number">2</span>PO Analysis & Recommendations</h2>
@@ -4479,17 +4543,17 @@ HTML_TEMPLATE = """
                 </div>
             </div>
         </div>
-        
+
         <!-- Step 3: Show Data Table -->
         <div class="step hidden" id="step3">
             <h2><span class="step-number">3</span>PO Items Data</h2>
             <div id="data_table_container"></div>
-            
+
             <div style="margin-top: 20px;">
                 <button class="btn" onclick="startDownload()" id="download_btn">Start Download</button>
             </div>
         </div>
-        
+
         <!-- Download Progress -->
         <div class="step hidden" id="progress_step">
             <h2><span class="step-number">4</span>Download Progress</h2>
@@ -5476,7 +5540,7 @@ HTML_TEMPLATE = """
             });
             return selectedItems;
         }
-        
+
         async function analyzePO() {
             const poNumber = document.getElementById('po_input').value.trim();
             if (!poNumber) {
@@ -5528,7 +5592,7 @@ HTML_TEMPLATE = """
                 document.getElementById('analyze_btn').disabled = false;
             }
         }
-        
+
         function showPOAnalysis(data) {
             const poInfo = document.getElementById('po_info');
             poInfo.innerHTML = `
@@ -5550,9 +5614,9 @@ HTML_TEMPLATE = """
                 method5Card.classList.add('selected');
             }
         }
-        
 
-        
+
+
         function showDataTable(items) {
             console.log('showDataTable called with items:', items.length); // Debug log
             const container = document.getElementById('data_table_container');
@@ -5598,7 +5662,7 @@ HTML_TEMPLATE = """
             html += '</tbody></table>';
             container.innerHTML = html;
         }
-        
+
         async function startDownload() {
             if (!currentPO) {
                 showError('No PO data available. Please parse data first.');
