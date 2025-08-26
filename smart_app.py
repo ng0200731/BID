@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.5.11"
+VERSION = "3.6.1"
 VERSION_DATE = "2025-08-25 00:00"
-LAST_EDIT = "Fix save_po_details function to use scrape_po_details for PO 1289169 compatibility"
+LAST_EDIT = "Add Microsoft Edge support as fallback when Chrome not available - cross-computer compatibility"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -823,16 +823,102 @@ def scrape_po_details(po_number):
         chrome_options.add_argument("--disable-images")
         chrome_options.add_argument("--remote-debugging-port=9223")  # Developer mode
 
-        # --- Use Local Chromedriver ---
-        driver_path = os.path.join(os.getcwd(), 'chromedriver.exe')
-        if not os.path.exists(driver_path):
-            error_msg = "chromedriver.exe not found in the project directory. Please download it and place it in c:\\project\\bid\\"
+        # --- Smart Browser Setup (Chrome + Edge Support) ---
+        driver = None
+        browser_attempts = []
+
+        # 1. Try Chrome first
+        browser_attempts.append(('Chrome', 'chrome'))
+
+        # 2. Try Edge as fallback
+        browser_attempts.append(('Microsoft Edge', 'edge'))
+
+        # Try each browser
+        for browser_name, browser_type in browser_attempts:
+            try:
+                print(f"🔧 Trying {browser_name}...")
+
+                if browser_type == 'chrome':
+                    # Chrome setup
+                    driver_attempts = []
+
+                    # Try local chromedriver.exe first
+                    local_driver = os.path.join(os.getcwd(), 'chromedriver.exe')
+                    if os.path.exists(local_driver):
+                        driver_attempts.append(('Local ChromeDriver', local_driver))
+
+                    # Try embedded chromedriver (for executable)
+                    if getattr(sys, 'frozen', False):
+                        embedded_driver = os.path.join(sys._MEIPASS, 'chromedriver.exe')
+                        if os.path.exists(embedded_driver):
+                            driver_attempts.append(('Embedded ChromeDriver', embedded_driver))
+
+                    # Auto-download correct version
+                    driver_attempts.append(('Auto-download ChromeDriver', None))
+
+                    # Try each Chrome driver source
+                    for attempt_name, driver_path in driver_attempts:
+                        try:
+                            print(f"  🔧 Trying {attempt_name}...")
+
+                            if driver_path:
+                                service = Service(driver_path)
+                            else:
+                                from webdriver_manager.chrome import ChromeDriverManager
+                                service = Service(ChromeDriverManager().install())
+
+                            driver = webdriver.Chrome(service=service, options=chrome_options)
+                            print(f"✅ {browser_name} with {attempt_name} working!")
+                            break
+
+                        except Exception as e:
+                            print(f"  ❌ {attempt_name} failed: {e}")
+                            continue
+
+                    if driver:
+                        break
+
+                elif browser_type == 'edge':
+                    # Edge setup
+                    try:
+                        from selenium.webdriver.edge.options import Options as EdgeOptions
+                        from selenium.webdriver.edge.service import Service as EdgeService
+                        from webdriver_manager.microsoft import EdgeChromiumDriverManager
+
+                        # Create Edge options (similar to Chrome)
+                        edge_options = EdgeOptions()
+                        edge_options.add_argument('--headless')
+                        edge_options.add_argument('--no-sandbox')
+                        edge_options.add_argument('--disable-dev-shm-usage')
+                        edge_options.add_argument('--disable-gpu')
+                        edge_options.add_argument('--window-size=1920,1080')
+                        edge_options.add_argument('--disable-blink-features=AutomationControlled')
+                        edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                        edge_options.add_experimental_option('useAutomationExtension', False)
+                        edge_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0')
+                        edge_options.add_argument('--remote-debugging-port=9223')
+                        edge_options.add_argument('--disable-images')
+
+                        # Auto-download EdgeDriver
+                        edge_service = EdgeService(EdgeChromiumDriverManager().install())
+                        driver = webdriver.Edge(service=edge_service, options=edge_options)
+                        print(f"✅ {browser_name} working!")
+                        break
+
+                    except Exception as e:
+                        print(f"  ❌ Edge setup failed: {e}")
+                        continue
+
+            except Exception as e:
+                print(f"❌ {browser_name} failed: {e}")
+                continue
+
+        if not driver:
+            error_msg = "Could not setup any browser (Chrome or Edge). Please ensure at least one is installed and up to date."
             print(f"❌ {error_msg}")
             return {"error": error_msg}
-        print(f"ℹ️ Using local chromedriver: {driver_path}")
-        # --- End Use Local Chromedriver ---
-        service = Service(driver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # --- End Smart Browser Setup ---
+        # Driver already created in the browser setup above
         wait = WebDriverWait(driver, 15)
 
         print(f"🔍 Scraping PO details for {po_number}...")
