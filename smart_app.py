@@ -13,9 +13,9 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.5.6"
-VERSION_DATE = "2025-08-25 00:00"
-LAST_EDIT = "Add missing title and timestamp fields to fix remaining undefined displays"
+VERSION = "3.5.9"
+VERSION_DATE = "2025-01-03 15:30"
+LAST_EDIT = "Fixed table detection to handle td.tableHeaderText headers and tblItems table ID"
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -932,6 +932,14 @@ def scrape_po_details(po_number):
                     rows = table.find_elements(By.TAG_NAME, "tr")
                     print(f"📋 Table {table_idx + 1}: {len(rows)} rows")
 
+                    # Check if this table has the items header
+                    has_item_header = False
+                    if rows:
+                        first_row_text = rows[0].text.lower()
+                        if 'item #' in first_row_text or 'item' in first_row_text:
+                            has_item_header = True
+                            print(f"🎯 Table {table_idx + 1} appears to be items table (header: {first_row_text[:50]}...)")
+
                     if len(rows) < 2:  # Skip tables with no data rows
                         continue
 
@@ -940,10 +948,29 @@ def scrape_po_details(po_number):
                         cells = row.find_elements(By.TAG_NAME, "td")
 
                         if len(cells) >= 8:  # Should have at least 8 columns for item data
-                            cell_texts = [cell.text.strip() for cell in cells]
+                            # Enhanced cell text extraction - handle links and nested elements
+                            cell_texts = []
+                            for cell in cells:
+                                # Try to get text from links first, then fallback to cell text
+                                try:
+                                    link = cell.find_element(By.TAG_NAME, "a")
+                                    cell_text = link.text.strip()
+                                except:
+                                    cell_text = cell.text.strip()
+                                cell_texts.append(cell_text)
+
+                            # Debug: Print first few cells to see what we're getting
+                            if len(cell_texts) >= 3:
+                                print(f"🔍 Row {row_idx}: [{cell_texts[0][:15]}] [{cell_texts[1][:20]}] [{cell_texts[2][:10]}]")
 
                             # Check if this looks like an item row (first cell should be item number)
-                            if cell_texts[0] and len(cell_texts[0]) > 3 and not cell_texts[0].lower().startswith('item'):
+                            # Skip header rows and invalid data
+                            if (cell_texts[0] and len(cell_texts[0]) > 3 and
+                                not cell_texts[0].lower().startswith('item') and
+                                not cell_texts[0].lower().startswith('total') and
+                                not 'item #' in cell_texts[0].lower() and
+                                not 'need by' in ' '.join(cell_texts).lower() and
+                                not all(len(text.strip()) < 3 for text in cell_texts[:3])):  # Skip rows with mostly empty cells
                                 item = {
                                     'item_number': cell_texts[0] if len(cell_texts) > 0 else '',
                                     'description': cell_texts[1] if len(cell_texts) > 1 else '',
@@ -957,6 +984,8 @@ def scrape_po_details(po_number):
                                 }
                                 po_items.append(item)
                                 print(f"✅ Found item: {item['item_number']} - {item['description'][:30]}...")
+                            else:
+                                print(f"⚠️ Skipped row {row_idx}: first cell '{cell_texts[0][:20]}' doesn't look like item number")
 
                     if po_items:  # Found items in this table
                         print(f"🎯 Successfully extracted {len(po_items)} items from table {table_idx + 1}")
@@ -1430,13 +1459,26 @@ def get_po_data(po_number):
             rows = table.find_elements(By.TAG_NAME, "tr")
             print(f"Table {table_index}: {len(rows)} rows")
 
-            # Multiple strategies to identify the correct table
-            header_found = False
-            table_score = 0
+            # Check if this is the items table by ID
+            table_id = table.get_attribute('id')
+            if table_id == 'tblItems':
+                print(f"Table {table_index} identified as items table by ID: {table_id}")
+                header_found = True
+                table_score = 10  # High confidence
+            else:
+                # Multiple strategies to identify the correct table
+                header_found = False
+                table_score = 0
 
-            # Strategy 1: Look for header row with expected columns
+            # Strategy 1: Look for header row with expected columns (check both th and td with tableHeaderText class)
             for row_index, row in enumerate(rows):
+                # Check for traditional th headers
                 header_cells = row.find_elements(By.TAG_NAME, "th")
+
+                # Also check for td headers with tableHeaderText class (like in PO 1287364)
+                if not header_cells:
+                    header_cells = row.find_elements(By.CSS_SELECTOR, "td.tableHeaderText")
+
                 if len(header_cells) >= 5:  # Expect multiple columns
                     header_text = " ".join([cell.text.strip() for cell in header_cells]).lower()
                     print(f"Table {table_index}, Row {row_index} headers: {header_text}")
@@ -1474,8 +1516,16 @@ def get_po_data(po_number):
 
                 if len(cells) >= 4:  # Minimum columns needed
                     try:
-                        # Get all cell text for analysis
-                        cell_texts = [cell.text.strip() for cell in cells]
+                        # Enhanced cell text extraction - handle links and nested elements
+                        cell_texts = []
+                        for cell in cells:
+                            # Try to get text from links first, then fallback to cell text
+                            try:
+                                link = cell.find_element(By.TAG_NAME, "a")
+                                cell_text = link.text.strip()
+                            except:
+                                cell_text = cell.text.strip()
+                            cell_texts.append(cell_text)
                         print(f"Row data: {cell_texts[:6]}")  # Show first 6 columns
 
                         # Correct column mapping based on real web table structure
@@ -1497,10 +1547,15 @@ def get_po_data(po_number):
                             item_number != "Total:" and
                             item_number != "Description" and
                             not item_number.startswith("#") and  # Skip row numbers
+                            not 'item #' in item_number.lower() and  # Skip header rows
+                            not 'need by' in ' '.join(cell_texts).lower() and  # Skip header rows
                             description and
                             len(description) > 5 and  # Descriptions are usually longer
                             description != "Item #" and
                             description != "Description" and
+                            description != "Need By" and
+                            description != "Color" and
+                            description != "Ship To" and
                             # Check if it looks like a real item number (contains letters and numbers)
                             any(c.isalpha() for c in item_number) and
                             any(c.isdigit() for c in item_number)
@@ -1568,6 +1623,17 @@ def get_po_data(po_number):
 
         item_data = unique_items
         print(f"Final unique items: {len(item_data)}")
+
+        # Debug: Print final items for troubleshooting
+        if item_data:
+            print(f"✅ SUCCESS: Found {len(item_data)} items for PO {po_number}")
+            for i, item in enumerate(item_data):
+                print(f"   Final Item {i+1}: {item.get('name')} - {item.get('description', '')[:30]}")
+        else:
+            print(f"❌ FAILURE: No items found for PO {po_number}")
+            print(f"   Tables processed: {len(tables)}")
+            print(f"   Page title: {po_title}")
+            print(f"   Current URL: {driver.current_url}")
 
         # Get recommendations
         item_names = [item['name'] for item in item_data]
@@ -2586,14 +2652,23 @@ def save_po_details_api():
 
     try:
         # Use the working get_po_data function instead of scrape_po_details
+        print(f"🔍 Attempting to get PO data for {po_number}")
         result = get_po_data(po_number)
+        print(f"🔍 get_po_data result: success={result.get('success')}, items_count={len(result.get('items', []))}")
 
         if not result.get('success'):
-            return jsonify({"success": False, "message": "Could not extract PO details from website"})
+            error_msg = result.get('error', 'Could not extract PO details from website')
+            print(f"❌ get_po_data failed: {error_msg}")
+            return jsonify({"success": False, "message": error_msg})
 
         # Extract data from the working result format
         raw_items = result.get('items', [])
+        print(f"🔍 Raw items extracted: {len(raw_items)}")
+        for i, item in enumerate(raw_items[:3]):  # Show first 3 items for debugging
+            print(f"   Item {i+1}: {item.get('name', 'NO_NAME')} - {item.get('description', 'NO_DESC')[:30]}")
+
         if not raw_items:
+            print(f"❌ No items found in get_po_data result")
             return jsonify({"success": False, "message": "No items found in PO"})
 
         # Convert the get_po_data format to the database format
@@ -2644,7 +2719,26 @@ def save_po_details_api():
             return jsonify({"success": False, "message": "Failed to save PO to database"})
 
     except Exception as e:
+        print(f"❌ Exception in save_po_details_api: {str(e)}")
         return jsonify({"success": False, "message": f"Error processing PO: {str(e)}"})
+
+@app.route('/api/po/test_scraping/<po_number>', methods=['GET'])
+def test_po_scraping(po_number):
+    """Test endpoint to debug PO scraping"""
+    try:
+        print(f"🧪 Testing scraping for PO {po_number}")
+        result = get_po_data(po_number)
+
+        return jsonify({
+            "success": result.get('success', False),
+            "po_number": po_number,
+            "items_found": len(result.get('items', [])),
+            "items": result.get('items', []),
+            "error": result.get('error', None),
+            "title": result.get('title', None)
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/po/get_all', methods=['GET'])
 def get_all_pos():
