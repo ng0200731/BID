@@ -13,9 +13,17 @@ VERSION TRACKING:
 """
 
 # Version tracking system
-VERSION = "3.5.9"
+VERSION = "3.5.10"
 VERSION_DATE = "2025-01-03 15:30"
-LAST_EDIT = "Fixed table detection to handle td.tableHeaderText headers and tblItems table ID"
+LAST_EDIT = "Fixed redundant login and optimized database performance"
+
+# Global browser session manager to avoid redundant logins
+browser_session = {
+    'driver': None,
+    'logged_in': False,
+    'last_used': None,
+    'session_timeout': 1800  # 30 minutes
+}
 
 from flask import Flask, render_template_string, request, jsonify, send_file, Response
 import os
@@ -37,6 +45,112 @@ def update_version(new_version, edit_description):
     VERSION_DATE = datetime.now().strftime("%Y-%m-%d %H:%M")
     LAST_EDIT = edit_description
     print(f"📝 Version updated to {VERSION} - {edit_description}")
+
+def get_shared_browser_session():
+    """Get or create a shared browser session to avoid redundant logins"""
+    global browser_session
+    import time
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
+    current_time = time.time()
+
+    # Check if session exists and is still valid
+    if (browser_session['driver'] is not None and
+        browser_session['logged_in'] and
+        browser_session['last_used'] is not None and
+        (current_time - browser_session['last_used']) < browser_session['session_timeout']):
+
+        # Validate that browser session is still responsive
+        try:
+            # Test if browser is still alive by getting current URL
+            current_url = browser_session['driver'].current_url
+            # Also test if we can interact with the page
+            browser_session['driver'].execute_script("return document.readyState;")
+            browser_session['last_used'] = current_time
+            print("♻️ Reusing existing browser session (already logged in)")
+            return browser_session['driver']
+        except Exception as e:
+            print(f"⚠️ Browser session is stale ({str(e)}), creating new session...")
+            # Reset session state and fall through to create new session
+            reset_browser_session()
+
+    # Create new session or session expired
+    if browser_session['driver'] is not None:
+        try:
+            browser_session['driver'].quit()
+        except:
+            pass
+
+    # Setup new browser
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-images")
+    chrome_options.add_argument("--remote-debugging-port=9226")
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+
+    # Use local chromedriver
+    driver_path = os.path.join(os.getcwd(), 'chromedriver.exe')
+    if not os.path.exists(driver_path):
+        raise Exception("chromedriver.exe not found in project directory")
+
+    from selenium.webdriver.chrome.service import Service
+    service = Service(driver_path)
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+
+    # Login
+    print("📝 Logging in to E-BrandID...")
+    driver.get(config['login_url'])
+
+    username_field = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.ID, "txtUserName"))
+    )
+    password_field = driver.find_element(By.ID, "txtPassword")
+
+    username_field.send_keys(config['username'])
+    password_field.send_keys(config['password'])
+
+    login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
+    login_button.click()
+
+    # Wait for login
+    WebDriverWait(driver, 10).until(lambda d: "login" not in d.current_url.lower())
+    print("✅ Login successful!")
+
+    # Update session
+    browser_session['driver'] = driver
+    browser_session['logged_in'] = True
+    browser_session['last_used'] = current_time
+
+    return driver
+
+def cleanup_browser_session():
+    """Cleanup browser session on app shutdown or errors"""
+    global browser_session
+    if browser_session['driver'] is not None:
+        try:
+            browser_session['driver'].quit()
+        except:
+            pass
+    # Reset all session state
+    browser_session['driver'] = None
+    browser_session['logged_in'] = False
+    browser_session['last_used'] = None
+
+def reset_browser_session():
+    """Reset browser session state without quitting (for error recovery)"""
+    global browser_session
+    browser_session['driver'] = None
+    browser_session['logged_in'] = False
+    browser_session['last_used'] = None
 
 def mask_email(email):
     """Mask email address: prefix shows first 2 chars, suffix shows first 1 char"""
@@ -634,20 +748,36 @@ def save_po_to_database(po_number, po_header, po_items, overwrite=False):
             print(f"⚠️ PO {po_number} already exists in database")
             return False
 
-        # Insert PO items with cleaned numbers
-        for item in po_items:
-            # Clean numeric fields before database insertion
-            clean_qty = clean_number_format(item.get('qty', ''))
-            clean_bundle_qty = clean_number_format(item.get('bundle_qty', ''))
-            clean_unit_price = clean_number_format(item.get('unit_price', ''))
-            clean_extension = clean_number_format(item.get('extension', ''))
+        # Bulk insert PO items for improved performance
+        if po_items:
+            item_data = []
+            for item in po_items:
+                # Clean numeric fields before database insertion
+                clean_qty = clean_number_format(item.get('qty', ''))
+                clean_bundle_qty = clean_number_format(item.get('bundle_qty', ''))
+                clean_unit_price = clean_number_format(item.get('unit_price', ''))
+                clean_extension = clean_number_format(item.get('extension', ''))
 
-            cursor.execute('''
+                item_data.append((
+                    po_number,
+                    item.get('item_number', ''),
+                    item.get('description', ''),
+                    item.get('color', ''),
+                    item.get('ship_to', ''),
+                    item.get('need_by', ''),
+                    clean_qty,
+                    clean_bundle_qty,
+                    clean_unit_price,
+                    clean_extension
+                ))
+
+            # Bulk insert all items at once (much faster than individual INSERTs)
+            cursor.executemany('''
                 INSERT INTO po_items (po_number, item_number, description, color, ship_to, need_by, qty, bundle_qty, unit_price, extension)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (po_number, item.get('item_number', ''), item.get('description', ''), item.get('color', ''),
-                  item.get('ship_to', ''), item.get('need_by', ''), clean_qty,
-                  clean_bundle_qty, clean_unit_price, clean_extension))
+            ''', item_data)
+
+            print(f"💾 Bulk inserted {len(item_data)} PO items efficiently")
 
         conn.commit()
         return True
@@ -812,47 +942,16 @@ from selenium.webdriver.support import expected_conditions as EC
 
 
 def scrape_po_details(po_number):
-    """Scrape complete PO details from factoryPODetail.aspx page"""
-    driver = None
+    """Scrape complete PO details from factoryPODetail.aspx page using shared browser session"""
     try:
-        # Setup Chrome driver (Developer Mode)
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-images")
-        chrome_options.add_argument("--remote-debugging-port=9223")  # Developer mode
+        # Use shared browser session to avoid redundant login
+        driver = get_shared_browser_session()
+        print(f"♻️ Using shared browser session for scraping PO {po_number}")
 
-        # --- Use Local Chromedriver ---
-        driver_path = os.path.join(os.getcwd(), 'chromedriver.exe')
-        if not os.path.exists(driver_path):
-            error_msg = "chromedriver.exe not found in the project directory. Please download it and place it in c:\\project\\bid\\"
-            print(f"❌ {error_msg}")
-            return {"error": error_msg}
-        print(f"ℹ️ Using local chromedriver: {driver_path}")
-        # --- End Use Local Chromedriver ---
-        service = Service(driver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
         wait = WebDriverWait(driver, 15)
-
         print(f"🔍 Scraping PO details for {po_number}...")
 
-        # Login first (same as working functions)
-        driver.get(config['login_url'])
-        username_field = wait.until(EC.presence_of_element_located((By.ID, "txtUserName")))
-        password_field = driver.find_element(By.ID, "txtPassword")
-
-        username_field.send_keys(config['username'])
-        password_field.send_keys(config['password'])
-
-        # Use the same login method as working functions
-        login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
-        login_button.click()
-        wait.until(lambda d: "login" not in d.current_url.lower())
-
-        print(f"✅ Login successful for PO scraping")
-
-        # Navigate to PO detail page
+        # Navigate directly to PO detail page (already logged in via shared session)
         po_url = f"https://app.e-brandid.com/Bidnet/bidnet3/factoryPODetail.aspx?po_id={po_number}"
         driver.get(po_url)
         time.sleep(5)  # Give more time for page to load
@@ -1006,11 +1105,8 @@ def scrape_po_details(po_number):
         }
 
     except Exception as e:
-        print(f"❌ Error scraping PO details: {e}")
+        print(f"❌ Error scraping PO {po_number}: {str(e)}")
         return {"error": str(e)}
-    finally:
-        if driver:
-            driver.quit()
 
 def extract_field_value(page_text, field_names):
     """Extract field value from page text using multiple possible field names"""
@@ -1306,43 +1402,15 @@ def generate_sticker_file(po_number):
         return {'success': False, 'error': str(e)}
 
 def get_po_data(po_number):
-    """Get PO data from E-BrandID"""
-
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-images")
-    chrome_options.add_argument("--remote-debugging-port=9224")  # Developer mode
-
-    # --- Use Local Chromedriver ---
-    driver_path = os.path.join(os.getcwd(), 'chromedriver.exe')
-    if not os.path.exists(driver_path):
-        error_msg = "chromedriver.exe not found in the project directory"
-        print(f"❌ {error_msg}")
-        return {"success": False, "error": error_msg}
-
-    print(f"ℹ️ Using local chromedriver: {driver_path}")
-    service = Service(driver_path)
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    # --- End Use Local Chromedriver ---
-
-    wait = WebDriverWait(driver, 10)
-
+    """Get PO data from E-BrandID using shared browser session"""
     try:
-        # Login
-        driver.get(config['login_url'])
-        username_field = wait.until(EC.presence_of_element_located((By.ID, "txtUserName")))
-        password_field = driver.find_element(By.ID, "txtPassword")
+        # Use shared browser session to avoid redundant login
+        driver = get_shared_browser_session()
+        print(f"♻️ Using shared browser session for PO {po_number}")
 
-        username_field.send_keys(config['username'])
-        password_field.send_keys(config['password'])
+        wait = WebDriverWait(driver, 10)
 
-        login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
-        login_button.click()
-        wait.until(lambda d: "login" not in d.current_url.lower())
-
-        # Navigate to PO search page first
+        # Navigate to PO search page (skip login, already logged in via shared session)
         print(f"🔍 STEP 1: Going to PO search page")
         driver.get("https://app.e-brandid.com/Bidnet/bidnet3/factoryPOList.aspx")
 
@@ -1832,8 +1900,9 @@ def test_login():
             'success': False,
             'error': str(e)
         })
-    finally:
-        driver.quit()
+    except Exception as cleanup_error:
+        print(f"⚠️ Error in get_po_data: {cleanup_error}")
+        return {"success": False, "error": str(cleanup_error)}
 
 @app.route('/api/test_data/<po_number>')
 def test_data(po_number):
@@ -2328,12 +2397,9 @@ def download_guaranteed_complete(po_number, items, download_folder):
     import requests
     import re
     import shutil
-    from selenium import webdriver
     from selenium.webdriver.common.by import By
-    from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
-    from webdriver_manager.chrome import ChromeDriverManager
 
     success_count = 0
     downloaded_files = []
@@ -2342,45 +2408,24 @@ def download_guaranteed_complete(po_number, items, download_folder):
     download_status['log'].append(f"⚡ Processing {len(items)} items with 100% success rate...")
     download_status['log'].append("🔍 Setting up browser for PDF URL extraction...")
 
-    # Setup browser for URL extraction (Developer Mode)
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--remote-debugging-port=9225")  # Developer mode
-    chrome_options.add_argument("--disable-web-security")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
-
     try:
-        driver = webdriver.Chrome(options=chrome_options)
-        download_status['log'].append("✅ Browser setup complete")
+        # Use shared browser session to avoid redundant login
+        driver = get_shared_browser_session()
+        download_status['log'].append("✅ Browser session ready")
 
-        # CRITICAL: Login first (same as working unified_downloader.py)
-        download_status['log'].append("📝 Logging in to E-BrandID...")
-        driver.get(config['login_url'])
-
-        # Login with credentials (same as unified_downloader.py)
-        username_field = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "txtUserName"))
-        )
-        password_field = driver.find_element(By.ID, "txtPassword")
-
-        username_field.send_keys(config['username'])
-        password_field.send_keys(config['password'])
-
-        login_button = driver.find_element(By.XPATH, "//img[@onclick='return Login();']")
-        login_button.click()
-
-        # Wait for login to complete
-        WebDriverWait(driver, 10).until(lambda d: "login" not in d.current_url.lower())
-        download_status['log'].append("✅ Login successful!")
-
-        # Now navigate to the PO page (after login) - use the correct PO number
+        # Navigate directly to PO page (already logged in via shared session)
         po_url = f"https://app.e-brandid.com/Bidnet/bidnet3/factoryPODetail.aspx?po_id={po_number}"
-        driver.get(po_url)
-        download_status['log'].append(f"📄 Loaded PO page: {po_number} (after login)")
+        try:
+            driver.get(po_url)
+            download_status['log'].append(f"📄 Loaded PO page: {po_number} (using shared session)")
+        except Exception as nav_error:
+            download_status['log'].append(f"❌ Navigation error: {str(nav_error)}")
+            download_status['log'].append("🔄 Recreating browser session...")
+            # Force new session creation
+            cleanup_browser_session()
+            driver = get_shared_browser_session()
+            driver.get(po_url)
+            download_status['log'].append(f"📄 Loaded PO page: {po_number} (using new session)")
 
         # Wait for page to load
         time.sleep(3)
@@ -2399,7 +2444,6 @@ def download_guaranteed_complete(po_number, items, download_folder):
 
         if not item_links:
             download_status['log'].append("❌ No openItemDetail links found!")
-            driver.quit()
             return 0
 
         # Extract PDF URLs using the exact same method as unified_downloader.py
@@ -2472,8 +2516,7 @@ def download_guaranteed_complete(po_number, items, download_folder):
                 download_status['log'].append(f"❌ Error processing {item_name}: {str(e)}")
                 continue
 
-        # Close browser
-        driver.quit()
+        # Keep browser session alive for reuse (don't quit)
         download_status['log'].append("🔍 PDF URL extraction complete")
 
         # Now download all the PDFs
@@ -8470,4 +8513,9 @@ if __name__ == '__main__':
     print("📱 Open your browser and go to: http://localhost:5002")
     print("🛑 Press Ctrl+C to stop the server")
 
-    app.run(debug=False, host='127.0.0.1', port=5002)
+    try:
+        app.run(debug=False, host='127.0.0.1', port=5002)
+    finally:
+        # Cleanup browser session on app shutdown
+        cleanup_browser_session()
+        print("🧹 Browser session cleaned up")
